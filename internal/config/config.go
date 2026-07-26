@@ -14,6 +14,7 @@ type Config struct {
 	Database DatabaseConfig
 	JWT      JWTConfig
 	CORS     CORSConfig
+	Email    EmailConfig
 }
 
 // ServerConfig holds server-specific configuration
@@ -44,6 +45,14 @@ type CORSConfig struct {
 	AllowedOrigins []string
 }
 
+// EmailConfig holds email/Resend configuration
+type EmailConfig struct {
+	ResendAPIKey string
+	FromEmail    string
+	FromName     string
+	AppURL       string
+}
+
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	// Load .env file if it exists (for local development)
@@ -70,11 +79,21 @@ func Load() (*Config, error) {
 		CORS: CORSConfig{
 			AllowedOrigins: parseSlice(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000")),
 		},
+		Email: EmailConfig{
+			ResendAPIKey: getEnv("RESEND_API_KEY", ""),
+			FromEmail:    getEnv("FROM_EMAIL", "noreply@nimio.org"),
+			FromName:     getEnv("FROM_NAME", "Nimio"),
+			AppURL:       getEnv("APP_URL", "http://localhost:3000"),
+		},
 	}
 
 	// Validate required fields
 	if cfg.JWT.Secret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
+	if cfg.Email.ResendAPIKey == "" {
+		return nil, fmt.Errorf("RESEND_API_KEY is required")
+	}
+
 	}
 
 	if cfg.Database.Password == "" {

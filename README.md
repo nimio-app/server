@@ -135,6 +135,68 @@ Content-Type: application/json
 }
 ```
 
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "uuid",
+      "email": "user@example.com",
+      "email_verified": false,
+      "created_at": "2026-07-26T12:00:00Z",
+      "verified_at": null
+    },
+    "profile": {
+      "user_id": "uuid",
+      "username": "johndoe",
+      "display_name": "John Doe"
+    },
+    "token": "eyJhbGc..."
+  }
+}
+```
+
+#### Verify Email
+```bash
+POST /v1/auth/verify-email
+Content-Type: application/json
+
+{
+  "token": "verification_token_from_email"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Email verified successfully! You can now use all features."
+  }
+}
+```
+
+#### Resend Verification Email
+```bash
+POST /v1/auth/resend-verification
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Verification email sent! Please check your inbox."
+  }
+}
+```
+
 ### Protected Endpoints (Requires JWT)
 
 Add header: `Authorization: Bearer <token>`
@@ -260,6 +322,33 @@ make clean
 | `JWT_ACCESS_EXPIRY` | Access token expiry | `15m` |
 | `JWT_REFRESH_EXPIRY` | Refresh token expiry | `168h` |
 | `CORS_ALLOWED_ORIGINS` | CORS allowed origins | `http://localhost:3000` |
+| `RESEND_API_KEY` | Resend API key for emails | **required** |
+| `FROM_EMAIL` | Email sender address | `noreply@nimio.org` |
+| `FROM_NAME` | Email sender name | `Nimio` |
+| `APP_URL` | Frontend app URL for links | `http://localhost:3000` |
+
+## Email verification** with secure random tokens (24-hour expiry)
+- **📧 Email Verification
+
+Nimio uses [Resend](https://resend.com) for transactional emails. When users register:
+
+1. A verification email is sent automatically with a 24-hour token
+2. Users receive a branded HTML email with a verification link
+3. The `email_verified` field remains `false` until verification
+4. Frontend should check this field and display appropriate UI
+
+**Email Flow:**
+- RegiEmail verification with Resend
+- [x] stration → Email sent with token → User clicks link → Call `/v1/auth/verify-email` → `email_verified: true`
+- Token format: Base64-encoded 32-byte random string
+- Expiry: 24 hours from generation
+- Users can request resend via `/v1/auth/resend-verification`
+
+**Setup:**
+1. Create a [Resend account](https://resend.com)
+2. Get your API key
+3. Add `RESEND_API_KEY` to `.env`
+4. Configure your domain for production (or use `onboarding@resend.dev` for testing)
 
 ## 🔒 Security Features
 

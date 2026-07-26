@@ -8,11 +8,15 @@ import (
 
 // User represents the core authentication entity
 type User struct {
-	ID           uuid.UUID `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"` // Never expose in JSON
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                         uuid.UUID  `json:"id"`
+	Email                      string     `json:"email"`
+	PasswordHash               string     `json:"-"` // Never expose in JSON
+	EmailVerified              bool       `json:"email_verified"`
+	VerificationToken          *string    `json:"-"` // Never expose in JSON
+	VerificationTokenExpiresAt *time.Time `json:"-"` // Never expose in JSON
+	VerifiedAt                 *time.Time `json:"verified_at,omitempty"`
+	CreatedAt                  time.Time  `json:"created_at"`
+	UpdatedAt                  time.Time  `json:"updated_at"`
 }
 
 // Profile represents the public user profile

@@ -42,17 +42,26 @@ func main() {
 	userRepo := repository.NewUserRepository(dbPool)
 	statusRepo := repository.NewStatusRepository(dbPool)
 
+	// Initialize email service
+	emailService := service.NewEmailService(
+		cfg.Email.ResendAPIKey,
+		cfg.Email.FromEmail,
+		cfg.Email.FromName,
+		cfg.Email.AppURL,
+	)
+
 	// Initialize services
-	authService := service.NewAuthService(userRepo, cfg)
+	authService := service.NewAuthService(userRepo, emailService, cfg)
 	statusService := service.NewStatusService(statusRepo)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
+	verificationHandler := handler.NewVerificationHandler(authService)
 	profileHandler := handler.NewProfileHandler(userRepo)
 	statusHandler := handler.NewStatusHandler(statusService)
 
 	// Setup router
-	r := setupRouter(cfg, authService, authHandler, profileHandler, statusHandler)
+	r := setupRouter(cfg, authService, authHandler, verificationHandler, profileHandler, statusHandler)
 
 	// Create server
 	srv := &http.Server{
@@ -122,6 +131,7 @@ func setupRouter(
 	cfg *config.Config,
 	authService service.AuthService,
 	authHandler *handler.AuthHandler,
+	verificationHandler *handler.VerificationHandler,
 	profileHandler *handler.ProfileHandler,
 	statusHandler *handler.StatusHandler,
 ) *chi.Mux {
@@ -157,6 +167,8 @@ func setupRouter(
 		// Public auth routes
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", authHandler.Register)
+			r.Post("/verify-email", verificationHandler.VerifyEmail)
+			r.Post("/resend-verification", verificationHandler.ResendVerification)
 			r.Post("/login", authHandler.Login)
 		})
 

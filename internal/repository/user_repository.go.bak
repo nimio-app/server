@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -83,9 +82,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User, profile 
 }
 
 // GetByID retrieves a user by ID
-func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	query := `
-		SELECT id, email, password_hash, email_verified, verification_token, 
+func (r *userRepository) GetByID(ctemail_verified, verification_token, 
 			verification_token_expires_at, verified_at, created_at, updated_at
 		FROM users
 		WHERE id = $1
@@ -94,7 +91,9 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.EmailVerified,
 		&user.VerificationToken, &user.VerificationTokenExpiresAt,
-		&user.VerifiedAt, &user.CreatedAt, &user.UpdatedAt,
+		&user.VerifiedAt
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -105,10 +104,7 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 	return user, nil
 }
 
-// GetByEmail retrieves a user by email
-func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	query := `
-		SELECT id, email, password_hash, email_verified, verification_token, 
+// GetByEmail retrieves a user by eemail_verified, verification_token, 
 			verification_token_expires_at, verified_at, created_at, updated_at
 		FROM users
 		WHERE email = $1
@@ -117,30 +113,10 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.
 	err := r.db.QueryRow(ctx, query, email).Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.EmailVerified,
 		&user.VerificationToken, &user.VerificationTokenExpiresAt,
-		&user.VerifiedAt, &user.CreatedAt, &user.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, fmt.Errorf("query user: %w", err)
-	}
-	return user, nil
-}
-
-// GetByVerificationToken retrieves a user by verification token
-func (r *userRepository) GetByVerificationToken(ctx context.Context, token string) (*domain.User, error) {
-	query := `
-		SELECT id, email, password_hash, email_verified, verification_token, 
-			verification_token_expires_at, verified_at, created_at, updated_at
-		FROM users
-		WHERE verification_token = $1
-	`
+		&user.VerifiedAt
 	user := &domain.User{}
-	err := r.db.QueryRow(ctx, query, token).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.EmailVerified,
-		&user.VerificationToken, &user.VerificationTokenExpiresAt,
-		&user.VerifiedAt, &user.CreatedAt, &user.UpdatedAt,
+	err := r.db.QueryRow(ctx, query, email).Scan(
+		&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -149,44 +125,6 @@ func (r *userRepository) GetByVerificationToken(ctx context.Context, token strin
 		return nil, fmt.Errorf("query user: %w", err)
 	}
 	return user, nil
-}
-
-// UpdateVerificationToken updates the verification token for a user
-func (r *userRepository) UpdateVerificationToken(ctx context.Context, userID uuid.UUID, token *string, expiresAt *time.Time) error {
-	query := `
-		UPDATE users
-		SET verification_token = $1, verification_token_expires_at = $2, updated_at = NOW()
-		WHERE id = $3
-	`
-	result, err := r.db.Exec(ctx, query, token, expiresAt, userID)
-	if err != nil {
-		return fmt.Errorf("update verification token: %w", err)
-	}
-	if result.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
-}
-
-// MarkEmailAsVerified marks a user's email as verified
-func (r *userRepository) MarkEmailAsVerified(ctx context.Context, userID uuid.UUID) error {
-	query := `
-		UPDATE users
-		SET email_verified = TRUE, 
-			verification_token = NULL, 
-			verification_token_expires_at = NULL,
-			verified_at = NOW(),
-			updated_at = NOW()
-		WHERE id = $1
-	`
-	result, err := r.db.Exec(ctx, query, userID)
-	if err != nil {
-		return fmt.Errorf("mark email as verified: %w", err)
-	}
-	if result.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
 }
 
 // GetProfileByUserID retrieves a profile by user ID

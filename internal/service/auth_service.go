@@ -22,18 +22,22 @@ type AuthService interface {
 	Register(ctx context.Context, email, password, username, displayName string) (*domain.User, *domain.Profile, string, error)
 	Login(ctx context.Context, email, password string) (*domain.User, *domain.Profile, string, error)
 	ValidateToken(tokenString string) (uuid.UUID, error)
+	VerifyEmail(ctx context.Context, token string) error
+	ResendVerificationEmail(ctx context.Context, email string) error
 }
 
 type authService struct {
-	userRepo repository.UserRepository
-	cfg      *config.Config
+	userRepo     repository.UserRepository
+	emailService EmailService
+	cfg          *config.Config
 }
 
 // NewAuthService creates a new auth service
-func NewAuthService(userRepo repository.UserRepository, cfg *config.Config) AuthService {
+func NewAuthService(userRepo repository.UserRepository, emailService EmailService, cfg *config.Config) AuthService {
 	return &authService{
-		userRepo: userRepo,
-		cfg:      cfg,
+		userRepo:     userRepo,
+		emailService: emailService,
+		cfg:          cfg,
 	}
 }
 
@@ -63,13 +67,24 @@ func (s *authService) Register(ctx context.Context, email, password, username, d
 		return nil, nil, "", fmt.Errorf("hash password: %w", err)
 	}
 
+	// Generate verification token
+	verificationToken, err := generateVerificationToken()
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("generate verification token: %w", err)
+	}
+
+	expiresAt := time.Now().Add(24 * time.Hour) // 24 hour expiry
+
 	// Create user and profile
 	user := &domain.User{
-		ID:           uuid.New(),
-		Email:        email,
-		PasswordHash: passwordHash,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		ID:                         uuid.New(),
+		Email:                      email,
+		PasswordHash:               passwordHash,
+		EmailVerified:              false,
+		VerificationToken:          &verificationToken,
+		VerificationTokenExpiresAt: &expiresAt,
+		CreatedAt:                  time.Now(),
+		UpdatedAt:                  time.Now(),
 	}
 
 	profile := &domain.Profile{
@@ -82,6 +97,12 @@ func (s *authService) Register(ctx context.Context, email, password, username, d
 
 	if err := s.userRepo.Create(ctx, user, profile); err != nil {
 		return nil, nil, "", fmt.Errorf("create user: %w", err)
+	}
+
+	// Send verification email (don't fail registration if email fails)
+	if err := s.emailService.SendVerificationEmail(email, username, verificationToken); err != nil {
+		// Log error but don't fail registration
+		fmt.Printf("Failed to send verification email: %v\n", err)
 	}
 
 	// Generate JWT token
@@ -237,3 +258,85 @@ func verifyPassword(password, encodedHash string) bool {
 
 	return true
 }
+
+// VerifyEmail verifies a user's email with the provided token
+func (s *authService) VerifyEmail(ctx context.Context, token string) error {
+	// Get user by verification token
+	user, err := s.userRepo.GetByVerificationToken(ctx, token)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return fmt.Errorf("invalid or expired verification token")
+		}
+		return fmt.Errorf("get user by token: %w", err)
+	}
+
+	// Check if already verified
+	if user.EmailVerified {
+		return fmt.Errorf("email already verified")
+	}
+
+	// Check if token is expired
+	if user.VerificationTokenExpiresAt != nil && time.Now().After(*user.VerificationTokenExpiresAt) {
+		return fmt.Errorf("verification token has expired")
+	}
+
+	// Mark email as verified
+	if err := s.userRepo.MarkEmailAsVerified(ctx, user.ID); err != nil {
+		return fmt.Errorf("mark email as verified: %w", err)
+	}
+
+	return nil
+}
+
+// ResendVerificationEmail resends the verification email
+func (s *authService) ResendVerificationEmail(ctx context.Context, email string) error {
+	// Get user by email
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return fmt.Errorf("user not found")
+		}
+		return fmt.Errorf("get user: %w", err)
+	}
+
+	// Check if already verified
+	if user.EmailVerified {
+		return fmt.Errorf("email already verified")
+	}
+
+	// Generate new verification token
+	verificationToken, err := generateVerificationToken()
+	if err != nil {
+		return fmt.Errorf("generate verification token: %w", err)
+	}
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	// Update verification token
+	if err := s.userRepo.UpdateVerificationToken(ctx, user.ID, &verificationToken, &expiresAt); err != nil {
+		return fmt.Errorf("update verification token: %w", err)
+	}
+
+	// Get profile for username
+	profile, err := s.userRepo.GetProfileByUserID(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("get profile: %w", err)
+	}
+
+	// Send verification email
+	if err := s.emailService.SendVerificationEmail(email, profile.Username, verificationToken); err != nil {
+		return fmt.Errorf("send verification email: %w", err)
+	}
+
+	return nil
+}
+
+// generateVerificationToken generates a secure random token for email verification
+func generateVerificationToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(bytes), nil
+}
+
