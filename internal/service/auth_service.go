@@ -2,15 +2,16 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/argon2"
-	"crypto/rand"
-	"encoding/base64"
-	
+
 	"github.com/nimio/server/internal/config"
 	"github.com/nimio/server/internal/domain"
 	"github.com/nimio/server/internal/repository"
@@ -200,12 +201,14 @@ func hashPassword(password string) (string, error) {
 
 // verifyPassword verifies a password against a hash
 func verifyPassword(password, encodedHash string) bool {
-	// Parse the encoded hash
-	var saltEncoded, hashEncoded string
-	_, err := fmt.Sscanf(encodedHash, "$argon2id$%s$%s", &saltEncoded, &hashEncoded)
-	if err != nil {
+	// Parse the encoded hash format: $argon2id$salt$hash
+	parts := strings.Split(encodedHash, "$")
+	if len(parts) != 4 || parts[0] != "" || parts[1] != "argon2id" {
 		return false
 	}
+
+	saltEncoded := parts[2]
+	hashEncoded := parts[3]
 
 	// Decode salt and hash
 	salt, err := base64.RawStdEncoding.DecodeString(saltEncoded)
