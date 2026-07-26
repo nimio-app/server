@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nimio-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nimio -d nimio_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Uncomment to run migrations automatically
+  # migrate:
+  #   image: migrate/migrate
+  #   container_name: nimio-migrate
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./migrations:/migrations
+  #   command: 
+  #     - "-path=/migrations"
+  #     - "-database=postgres://nimio:nimio_dev_password@postgres:5432/nimio_db?sslmode=disable"
+  #     - "up"
+  #   restart: on-failure
+
+volumes:
+  postgres_data:
+    driver: local
