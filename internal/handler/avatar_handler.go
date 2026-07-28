@@ -72,9 +72,16 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	// Validate content type
 	contentType := header.Header.Get("Content-Type")
 	fmt.Printf("Received file: %s, size: %d, content-type: %s\n", header.Filename, header.Size, contentType)
-	if !isValidImageType(contentType) {
-		ErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("invalid file type '%s' (allowed: %s)", contentType, allowedTypes))
+	
+	// Accept image/* or specific image types
+	if contentType != "image/*" && !isValidImageType(contentType) {
+		ErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("invalid file type '%s' (allowed: %s or image/*)", contentType, allowedTypes))
 		return
+	}
+	
+	// If generic image/*, detect actual type from filename
+	if contentType == "image/*" {
+		contentType = getContentTypeFromFilename(header.Filename)
 	}
 
 	// Read file data
@@ -159,5 +166,27 @@ func isValidImageType(contentType string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// getContentTypeFromFilename guesses content type from file extension
+func getContentTypeFromFilename(filename string) string {
+	if len(filename) < 4 {
+		return "image/jpeg" // default
+	}
+	ext := filename[len(filename)-4:]
+	switch ext {
+	case ".jpg", ".JPG":
+		return "image/jpeg"
+	case "jpeg", "JPEG":
+		return "image/jpeg"
+	case ".png", ".PNG":
+		return "image/png"
+	case ".gif", ".GIF":
+		return "image/gif"
+	case "webp", "WEBP":
+		return "image/webp"
+	default:
+		return "image/jpeg" // default fallback
 	}
 }
