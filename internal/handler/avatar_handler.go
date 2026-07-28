@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nimio/server/internal/domain"
+	"github.com/nimio/server/internal/middleware"
 	"github.com/nimio/server/internal/service"
 )
 
@@ -39,7 +40,7 @@ func NewAvatarHandler(storageService service.StorageService, userRepo AvatarRepo
 // UploadAvatar handles POST /v1/me/avatar
 func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context (set by auth middleware)
-	userID, ok := r.Context().Value("user_id").(string)
+	userUUID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -80,12 +81,6 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upload to R2
-	userUUID, err := uuid.Parse(userID)
-	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "invalid user ID")
-		return
-	}
-
 	avatarURL, err := h.storageService.UploadAvatar(r.Context(), userUUID, fileData, contentType)
 	if err != nil {
 		ErrorResponse(w, http.StatusInternalServerError, "failed to upload avatar")
@@ -120,15 +115,9 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 // DeleteAvatar handles DELETE /v1/me/avatar
 func (h *AvatarHandler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context
-	userID, ok := r.Context().Value("user_id").(string)
+	userUUID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	userUUID, err := uuid.Parse(userID)
-	if err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "invalid user ID")
 		return
 	}
 
