@@ -48,14 +48,17 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	// Parse multipart form with max size
 	if err := r.ParseMultipartForm(maxAvatarSize); err != nil {
-		ErrorResponse(w, http.StatusBadRequest, "file too large (max 5MB)")
+		fmt.Printf("Failed to parse multipart form: %v\n", err)
+		ErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to parse multipart form: %v", err))
 		return
 	}
 
 	// Get the file from form
 	file, header, err := r.FormFile("avatar")
 	if err != nil {
-		ValidationErrorResponse(w, "avatar file is required")
+		fmt.Printf("Failed to get 'avatar' file from form: %v\n", err)
+		fmt.Printf("Available form fields: %v\n", r.MultipartForm.File)
+		ValidationErrorResponse(w, fmt.Sprintf("avatar file is required (error: %v)", err))
 		return
 	}
 	defer file.Close()
@@ -68,8 +71,9 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	// Validate content type
 	contentType := header.Header.Get("Content-Type")
+	fmt.Printf("Received file: %s, size: %d, content-type: %s\n", header.Filename, header.Size, contentType)
 	if !isValidImageType(contentType) {
-		ErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("invalid file type (allowed: %s)", allowedTypes))
+		ErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("invalid file type '%s' (allowed: %s)", contentType, allowedTypes))
 		return
 	}
 
