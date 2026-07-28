@@ -38,6 +38,8 @@ migrations/            # SQL schema migrations
 - **Router**: Chi v5
 - **Database**: PostgreSQL 16 with pgx/v5
 - **Auth**: JWT with Argon2id password hashing
+- **Email**: Resend for transactional emails
+- **Storage**: Cloudflare R2 for avatar images
 - **Development**: Docker Compose for local environment
 
 ## 📋 Prerequisites
@@ -229,6 +231,48 @@ GET /v1/me/status
 DELETE /v1/me/status
 ```
 
+#### Upload Avatar
+```bash
+POST /v1/me/avatar
+Content-Type: multipart/form-data
+
+# Using curl:
+curl -X POST https://api.nimio.org/v1/me/avatar \
+  -H "Authorization: Bearer <token>" \
+  -F "avatar=@/path/to/image.jpg"
+```
+
+**Requirements:**
+- Max file size: 5MB
+- Allowed formats: JPEG, PNG, GIF, WebP
+- Field name: `avatar`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "avatar_url": "https://pub-xxxxx.r2.dev/avatars/uuid.jpg",
+    "message": "Avatar uploaded successfully"
+  }
+}
+```
+
+#### Delete Avatar
+```bash
+DELETE /v1/me/avatar
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Avatar deleted successfully"
+  }
+}
+```
+
 #### Get Status Feed
 ```bash
 GET /v1/feed/status
@@ -326,9 +370,13 @@ make clean
 | `FROM_EMAIL` | Email sender address | `noreply@nimio.org` |
 | `FROM_NAME` | Email sender name | `Nimio` |
 | `APP_URL` | Frontend app URL for links | `http://localhost:3000` |
+| `R2_ACCOUNT_ID` | Cloudflare R2 account ID | **required** |
+| `R2_ACCESS_KEY_ID` | R2 access key ID | **required** |
+| `R2_SECRET_ACCESS_KEY` | R2 secret access key | **required** |
+| `R2_BUCKET_NAME` | R2 bucket name | `nimio` |
+| `R2_PUBLIC_URL` | R2 public URL or CDN | `` |
 
-## Email verification** with secure random tokens (24-hour expiry)
-- **📧 Email Verification
+## 📧 Email Verification
 
 Nimio uses [Resend](https://resend.com) for transactional emails. When users register:
 
@@ -338,8 +386,7 @@ Nimio uses [Resend](https://resend.com) for transactional emails. When users reg
 4. Frontend should check this field and display appropriate UI
 
 **Email Flow:**
-- RegiEmail verification with Resend
-- [x] stration → Email sent with token → User clicks link → Call `/v1/auth/verify-email` → `email_verified: true`
+- Registration → Email sent with token → User clicks link → Call `/v1/auth/verify-email` → `email_verified: true`
 - Token format: Base64-encoded 32-byte random string
 - Expiry: 24 hours from generation
 - Users can request resend via `/v1/auth/resend-verification`
@@ -350,10 +397,40 @@ Nimio uses [Resend](https://resend.com) for transactional emails. When users reg
 3. Add `RESEND_API_KEY` to `.env`
 4. Configure your domain for production (or use `onboarding@resend.dev` for testing)
 
+## 🖼️ Avatar Storage with Cloudflare R2
+
+Nimio uses [Cloudflare R2](https://www.cloudflare.com/products/r2/) for avatar image storage.
+
+**Features:**
+- Direct multipart upload to R2 (S3-compatible)
+- Max file size: 5MB
+- Supported formats: JPEG, PNG, GIF, WebP
+- Automatic old avatar deletion on new upload
+- Public CDN URLs for fast delivery
+
+**Setup:**
+1. Create an R2 bucket in your Cloudflare dashboard
+2. Generate R2 API tokens (Account ID, Access Key ID, Secret Access Key)
+3. Enable public access on your bucket or set up a custom domain
+4. Add credentials to `.env`:
+   ```env
+   R2_ACCOUNT_ID=your_account_id
+   R2_ACCESS_KEY_ID=your_access_key
+   R2_SECRET_ACCESS_KEY=your_secret_key
+   R2_BUCKET_NAME=nimio
+   R2_PUBLIC_URL=https://pub-xxxxx.r2.dev  # or your custom domain
+   ```
+
+**API Usage:**
+- `POST /v1/me/avatar` - Upload avatar (multipart form with `avatar` field)
+- `DELETE /v1/me/avatar` - Delete avatar
+- Avatar URLs are stored in `profiles.avatar_url`
+
 ## 🔒 Security Features
 
 - **Argon2id** password hashing with random salts
 - **JWT** authentication with configurable expiry
+- **Email verification** with secure random tokens (24-hour expiry)
 - **SQL injection** protection via prepared statements (pgx)
 - **CORS** configuration for cross-origin requests
 - **Request timeouts** and rate limiting ready
@@ -365,6 +442,8 @@ Nimio uses [Resend](https://resend.com) for transactional emails. When users reg
 
 - [x] Database schema with migrations
 - [x] User registration & authentication
+- [x] Email verification with Resend
+- [x] Avatar uploads with Cloudflare R2
 - [x] Profile management
 - [x] Status creation, updates, and deletion
 - [x] Privacy-aware status feed

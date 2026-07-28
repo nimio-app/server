@@ -15,6 +15,7 @@ type Config struct {
 	JWT      JWTConfig
 	CORS     CORSConfig
 	Email    EmailConfig
+	R2       R2Config
 }
 
 // ServerConfig holds server-specific configuration
@@ -53,6 +54,15 @@ type EmailConfig struct {
 	AppURL       string
 }
 
+// R2Config holds Cloudflare R2 storage configuration
+type R2Config struct {
+	AccountID       string
+	AccessKeyID     string
+	SecretAccessKey string
+	BucketName      string
+	PublicURL       string // CDN URL for serving images
+}
+
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	// Load .env file if it exists (for local development)
@@ -85,19 +95,27 @@ func Load() (*Config, error) {
 			FromName:     getEnv("FROM_NAME", "Nimio"),
 			AppURL:       getEnv("APP_URL", "http://localhost:3000"),
 		},
+		R2: R2Config{
+			AccountID:       os.Getenv("R2_ACCOUNT_ID"),
+			AccessKeyID:     os.Getenv("R2_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
+			BucketName:      getEnv("R2_BUCKET_NAME", "nimio"),
+			PublicURL:       getEnv("R2_PUBLIC_URL", ""),
+		},
 	}
 
 	// Validate required fields
+	if cfg.Database.Password == "" {
+		return nil, fmt.Errorf("DB_PASSWORD is required")
+	}
 	if cfg.JWT.Secret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
+	}
 	if cfg.Email.ResendAPIKey == "" {
 		return nil, fmt.Errorf("RESEND_API_KEY is required")
 	}
-
-	}
-
-	if cfg.Database.Password == "" {
-		return nil, fmt.Errorf("DB_PASSWORD is required")
+	if cfg.R2.AccountID == "" || cfg.R2.AccessKeyID == "" || cfg.R2.SecretAccessKey == "" {
+		return nil, fmt.Errorf("R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY are required")
 	}
 
 	return cfg, nil

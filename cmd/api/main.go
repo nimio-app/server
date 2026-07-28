@@ -50,6 +50,18 @@ func main() {
 		cfg.Email.AppURL,
 	)
 
+	// Initialize storage service
+	storageService, err := service.NewStorageService(
+		cfg.R2.AccountID,
+		cfg.R2.AccessKeyID,
+		cfg.R2.SecretAccessKey,
+		cfg.R2.BucketName,
+		cfg.R2.PublicURL,
+	)
+	if err != nil {
+		log.Fatalf("Failed to initialize storage service: %v", err)
+	}
+
 	// Initialize services
 	authService := service.NewAuthService(userRepo, emailService, cfg)
 	statusService := service.NewStatusService(statusRepo)
@@ -59,9 +71,10 @@ func main() {
 	verificationHandler := handler.NewVerificationHandler(authService)
 	profileHandler := handler.NewProfileHandler(userRepo)
 	statusHandler := handler.NewStatusHandler(statusService)
+	avatarHandler := handler.NewAvatarHandler(storageService, userRepo)
 
 	// Setup router
-	r := setupRouter(cfg, authService, authHandler, verificationHandler, profileHandler, statusHandler)
+	r := setupRouter(cfg, authService, authHandler, verificationHandler, profileHandler, statusHandler, avatarHandler)
 
 	// Create server
 	srv := &http.Server{
@@ -134,6 +147,7 @@ func setupRouter(
 	verificationHandler *handler.VerificationHandler,
 	profileHandler *handler.ProfileHandler,
 	statusHandler *handler.StatusHandler,
+	avatarHandler *handler.AvatarHandler,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -179,6 +193,10 @@ func setupRouter(
 			// Profile routes
 			r.Route("/me", func(r chi.Router) {
 				r.Get("/profile", profileHandler.GetMyProfile)
+				
+				// Avatar routes
+				r.Post("/avatar", avatarHandler.UploadAvatar)
+				r.Delete("/avatar", avatarHandler.DeleteAvatar)
 				
 				// Status routes
 				r.Route("/status", func(r chi.Router) {
