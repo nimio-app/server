@@ -11,6 +11,8 @@ type User struct {
 	ID                         uuid.UUID  `json:"id"`
 	Email                      string     `json:"email"`
 	PasswordHash               string     `json:"-"` // Never expose in JSON
+	GoogleID                   *string    `json:"-"`
+	AuthProvider               string     `json:"auth_provider"`
 	EmailVerified              bool       `json:"email_verified"`
 	VerificationToken          *string    `json:"-"` // Never expose in JSON
 	VerificationTokenExpiresAt *time.Time `json:"-"` // Never expose in JSON

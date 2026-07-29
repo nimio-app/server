@@ -16,6 +16,7 @@ type Config struct {
 	CORS     CORSConfig
 	Email    EmailConfig
 	R2       R2Config
+	Google   GoogleConfig
 }
 
 // ServerConfig holds server-specific configuration
@@ -63,6 +64,11 @@ type R2Config struct {
 	PublicURL       string // CDN URL for serving images
 }
 
+// GoogleConfig holds Google OAuth configuration
+type GoogleConfig struct {
+	WebClientID string
+}
+
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
 	// Load .env file if it exists (for local development)
@@ -102,6 +108,9 @@ func Load() (*Config, error) {
 			BucketName:      getEnv("R2_BUCKET_NAME", "nimio"),
 			PublicURL:       getEnv("R2_PUBLIC_URL", ""),
 		},
+		Google: GoogleConfig{
+			WebClientID: os.Getenv("GOOGLE_WEB_CLIENT_ID"),
+		},
 	}
 
 	// Validate required fields
@@ -113,6 +122,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.Email.ResendAPIKey == "" {
 		return nil, fmt.Errorf("RESEND_API_KEY is required")
+	}
+	if cfg.Google.WebClientID == "" {
+		return nil, fmt.Errorf("GOOGLE_WEB_CLIENT_ID is required")
 	}
 	if cfg.R2.AccountID == "" || cfg.R2.AccessKeyID == "" || cfg.R2.SecretAccessKey == "" {
 		return nil, fmt.Errorf("R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY are required")

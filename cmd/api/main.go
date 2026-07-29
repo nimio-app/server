@@ -50,6 +50,9 @@ func main() {
 		cfg.Email.AppURL,
 	)
 
+	// Initialize Google auth service
+	googleAuthService := service.NewGoogleAuthService(cfg.Google.WebClientID)
+
 	// Initialize storage service
 	storageService, err := service.NewStorageService(
 		cfg.R2.AccountID,
@@ -63,18 +66,19 @@ func main() {
 	}
 
 	// Initialize services
-	authService := service.NewAuthService(userRepo, emailService, cfg)
+	authService := service.NewAuthService(userRepo, emailService, googleAuthService, cfg)
 	statusService := service.NewStatusService(statusRepo)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
+	googleAuthHandler := handler.NewGoogleAuthHandler(authService)
 	verificationHandler := handler.NewVerificationHandler(authService)
 	profileHandler := handler.NewProfileHandler(userRepo)
 	statusHandler := handler.NewStatusHandler(statusService)
 	avatarHandler := handler.NewAvatarHandler(storageService, userRepo)
 
 	// Setup router
-	r := setupRouter(cfg, authService, authHandler, verificationHandler, profileHandler, statusHandler, avatarHandler)
+	r := setupRouter(cfg, authService, authHandler, googleAuthHandler, verificationHandler, profileHandler, statusHandler, avatarHandler)
 
 	// Create server
 	srv := &http.Server{
@@ -144,6 +148,7 @@ func setupRouter(
 	cfg *config.Config,
 	authService service.AuthService,
 	authHandler *handler.AuthHandler,
+	googleAuthHandler *handler.GoogleAuthHandler,
 	verificationHandler *handler.VerificationHandler,
 	profileHandler *handler.ProfileHandler,
 	statusHandler *handler.StatusHandler,
@@ -183,6 +188,7 @@ func setupRouter(
 			r.Post("/register", authHandler.Register)
 			r.Post("/verify-email", verificationHandler.VerifyEmail)
 			r.Post("/resend-verification", verificationHandler.ResendVerification)
+			r.Post("/google", googleAuthHandler.GoogleSignIn)
 			r.Post("/login", authHandler.Login)
 		})
 

@@ -199,6 +199,58 @@ Content-Type: application/json
 }
 ```
 
+#### Google Sign-In
+```bash
+POST /v1/auth/google
+Content-Type: application/json
+
+{
+  "id_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+}
+```
+
+**Description:**
+Authenticate users via Google OAuth. The client must obtain an ID token from Google Sign-In and send it to this endpoint. The backend verifies the token with Google's public keys and either logs in an existing user or auto-registers a new user.
+
+**Flow:**
+1. Client initiates Google Sign-In and obtains an ID token
+2. Client sends the ID token to `/v1/auth/google`
+3. Backend verifies the token with Google
+4. If user exists (by Google ID or email), return existing account
+5. If user is new, auto-register with `email_verified: true` and Google profile data
+6. Return JWT token for authenticated session
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "uuid",
+      "email": "user@gmail.com",
+      "email_verified": true,
+      "google_id": "117234567890123456789",
+      "auth_provider": "google",
+      "verified_at": "2026-07-29T12:00:00Z",
+      "created_at": "2026-07-29T12:00:00Z"
+    },
+    "profile": {
+      "user_id": "uuid",
+      "username": "johndoe_1234",
+      "display_name": "John Doe",
+      "avatar_url": "https://lh3.googleusercontent.com/..."
+    },
+    "token": "eyJhbGc..."
+  }
+}
+```
+
+**Notes:**
+- Google accounts are pre-verified (no email verification needed)
+- Usernames are auto-generated from email with a random suffix
+- Avatar URLs from Google are stored in the profile
+- Users authenticated via Google have `auth_provider: "google"` and no password hash
+
 ### Protected Endpoints (Requires JWT)
 
 Add header: `Authorization: Bearer <token>`
@@ -375,6 +427,7 @@ make clean
 | `R2_SECRET_ACCESS_KEY` | R2 secret access key | **required** |
 | `R2_BUCKET_NAME` | R2 bucket name | `nimio` |
 | `R2_PUBLIC_URL` | R2 public URL or CDN | `` |
+| `GOOGLE_WEB_CLIENT_ID` | Google OAuth Web Client ID | **required** |
 
 ## 📧 Email Verification
 
@@ -397,7 +450,51 @@ Nimio uses [Resend](https://resend.com) for transactional emails. When users reg
 3. Add `RESEND_API_KEY` to `.env`
 4. Configure your domain for production (or use `onboarding@resend.dev` for testing)
 
-## 🖼️ Avatar Storage with Cloudflare R2
+## � Google OAuth Sign-In
+
+Nimio supports Google OAuth for seamless authentication without passwords.
+
+**Features:**
+- One-tap sign-in with Google accounts
+- Auto-registration for new users
+- Pre-verified email addresses (no verification needed)
+- Automatic profile data import (name, avatar)
+- Secure token verification with Google's public keys
+
+**Setup:**
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
+2. Enable the "Google+ API" or "Google Identity Services"
+3. Create OAuth 2.0 credentials (Web application)
+4. Add authorized redirect URIs for your frontend
+5. Copy your **Web Client ID**
+6. Add `GOOGLE_WEB_CLIENT_ID` to `.env`
+7. Configure your Android/iOS app with the same project credentials
+
+**Client Implementation:**
+```typescript
+// Example with @react-oauth/google in React
+import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
+
+const handleGoogleSignIn = useGoogleLogin({
+  onSuccess: async (credentialResponse) => {
+    const response = await fetch('https://api.nimio.org/v1/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: credentialResponse.credential })
+    });
+    const { token, user, profile } = await response.json();
+    // Store token and navigate to app
+  }
+});
+```
+
+**Database Schema:**
+- Users have an optional `google_id` field (unique)
+- `auth_provider` field indicates `email` or `google`
+- Google users have `email_verified: true` by default
+- Password hash is null for OAuth users
+
+## �🖼️ Avatar Storage with Cloudflare R2
 
 Nimio uses [Cloudflare R2](https://www.cloudflare.com/products/r2/) for avatar image storage.
 
@@ -442,6 +539,7 @@ Nimio uses [Cloudflare R2](https://www.cloudflare.com/products/r2/) for avatar i
 
 - [x] Database schema with migrations
 - [x] User registration & authentication
+- [x] Google OAuth sign-in
 - [x] Email verification with Resend
 - [x] Avatar uploads with Cloudflare R2
 - [x] Profile management

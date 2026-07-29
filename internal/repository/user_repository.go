@@ -17,6 +17,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *domain.User, profile *domain.Profile) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetByGoogleID(ctx context.Context, googleID string) (*domain.User, error)
 	GetByVerificationToken(ctx context.Context, token string) (*domain.User, error)
 	UpdateVerificationToken(ctx context.Context, userID uuid.UUID, token *string, expiresAt *time.Time) error
 	MarkEmailAsVerified(ctx context.Context, userID uuid.UUID) error
@@ -44,9 +45,9 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User, profile 
 
 	// Insert user
 	userQuery := `
-		INSERT INTO users (id, email, password_hash, email_verified, verification_token, 
-			verification_token_expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, email, password_hash, google_id, auth_provider, email_verified, 
+			verification_token, verification_token_expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at, updated_at
 	`
 	err = tx.QueryRow(ctx, userQuery, user.ID, user.Email, user.PasswordHash, user.EmailVerified,
@@ -125,6 +126,31 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.
 		}
 		return nil, fmt.Errorf("query user: %w", err)
 	}
+	return user, nil
+}
+
+// GetByGoogleID retrieves a user by Google ID
+func (r *userRepository) GetByGoogleID(ctx context.Context, googleID string) (*domain.User, error) {
+	query := `
+		SELECT id, email, password_hash, google_id, auth_provider, email_verified, 
+			verification_token, verification_token_expires_at, verified_at, created_at, updated_at
+		FROM users
+		WHERE google_id = $1
+	`
+
+	user := &domain.User{}
+	err := r.db.QueryRow(ctx, query, googleID).Scan(
+		&user.ID, &user.Email, &user.PasswordHash, &user.GoogleID, &user.AuthProvider,
+		&user.EmailVerified, &user.VerificationToken, &user.VerificationTokenExpiresAt,
+		&user.VerifiedAt, &user.CreatedAt, &user.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("query user by google ID: %w", err)
+	}
+
 	return user, nil
 }
 
