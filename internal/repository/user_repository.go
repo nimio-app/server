@@ -8,9 +8,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nimio/server/internal/domain"
 )
+
+// DBPool interface for pgxpool operations (enables mocking)
+type DBPool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
+}
 
 // UserRepository handles user-related database operations
 type UserRepository interface {
@@ -27,7 +36,7 @@ type UserRepository interface {
 }
 
 type userRepository struct {
-	db *pgxpool.Pool
+	db DBPool
 }
 
 // NewUserRepository creates a new user repository
@@ -50,8 +59,9 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User, profile 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at, updated_at
 	`
-	err = tx.QueryRow(ctx, userQuery, user.ID, user.Email, user.PasswordHash, user.EmailVerified,
-		user.VerificationToken, user.VerificationTokenExpiresAt, user.CreatedAt, user.UpdatedAt).
+	err = tx.QueryRow(ctx, userQuery, user.ID, user.Email, user.PasswordHash, user.GoogleID, 
+		user.AuthProvider, user.EmailVerified, user.VerificationToken, user.VerificationTokenExpiresAt, 
+		user.CreatedAt, user.UpdatedAt).
 		Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -86,15 +96,15 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User, profile 
 // GetByID retrieves a user by ID
 func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	query := `
-		SELECT id, email, password_hash, email_verified, verification_token, 
-			verification_token_expires_at, verified_at, created_at, updated_at
+		SELECT id, email, password_hash, google_id, auth_provider, email_verified, 
+			verification_token, verification_token_expires_at, verified_at, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	user := &domain.User{}
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.EmailVerified,
-		&user.VerificationToken, &user.VerificationTokenExpiresAt,
+		&user.ID, &user.Email, &user.PasswordHash, &user.GoogleID, &user.AuthProvider,
+		&user.EmailVerified, &user.VerificationToken, &user.VerificationTokenExpiresAt,
 		&user.VerifiedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
@@ -109,15 +119,15 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 // GetByEmail retrieves a user by email
 func (r *userRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	query := `
-		SELECT id, email, password_hash, email_verified, verification_token, 
-			verification_token_expires_at, verified_at, created_at, updated_at
+		SELECT id, email, password_hash, google_id, auth_provider, email_verified, 
+			verification_token, verification_token_expires_at, verified_at, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
 	user := &domain.User{}
 	err := r.db.QueryRow(ctx, query, email).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.EmailVerified,
-		&user.VerificationToken, &user.VerificationTokenExpiresAt,
+		&user.ID, &user.Email, &user.PasswordHash, &user.GoogleID, &user.AuthProvider,
+		&user.EmailVerified, &user.VerificationToken, &user.VerificationTokenExpiresAt,
 		&user.VerifiedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
@@ -157,15 +167,15 @@ func (r *userRepository) GetByGoogleID(ctx context.Context, googleID string) (*d
 // GetByVerificationToken retrieves a user by verification token
 func (r *userRepository) GetByVerificationToken(ctx context.Context, token string) (*domain.User, error) {
 	query := `
-		SELECT id, email, password_hash, email_verified, verification_token, 
-			verification_token_expires_at, verified_at, created_at, updated_at
+		SELECT id, email, password_hash, google_id, auth_provider, email_verified, 
+			verification_token, verification_token_expires_at, verified_at, created_at, updated_at
 		FROM users
 		WHERE verification_token = $1
 	`
 	user := &domain.User{}
 	err := r.db.QueryRow(ctx, query, token).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.EmailVerified,
-		&user.VerificationToken, &user.VerificationTokenExpiresAt,
+		&user.ID, &user.Email, &user.PasswordHash, &user.GoogleID, &user.AuthProvider,
+		&user.EmailVerified, &user.VerificationToken, &user.VerificationTokenExpiresAt,
 		&user.VerifiedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
