@@ -203,6 +203,7 @@ func setupRouter(
 			// Profile routes
 			r.Route("/me", func(r chi.Router) {
 				r.Get("/profile", profileHandler.GetMyProfile)
+				r.Put("/profile", profileHandler.UpdateMyProfile)
 				
 				// Avatar routes
 				r.Post("/avatar", avatarHandler.UploadAvatar)
@@ -226,6 +227,11 @@ func setupRouter(
 				r.Get("/", connectionHandler.GetMyConnections)
 				r.Get("/status/{userId}", connectionHandler.GetConnectionStatus)
 				r.Delete("/{friendId}", connectionHandler.RemoveConnection)
+			})
+
+			// User search routes
+			r.Route("/users", func(r chi.Router) {
+				r.Get("/search", profileHandler.SearchUsers)
 			})
 
 			// Feed routes

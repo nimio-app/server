@@ -101,6 +101,9 @@ func (m *MockUserRepository) GetProfileByUsername(ctx context.Context, username 
 func (m *MockUserRepository) UpdateProfile(ctx context.Context, profile *domain.Profile) error {
 	panic("not implemented")
 }
+func (m *MockUserRepository) SearchUsers(ctx context.Context, query string, limit int) ([]*domain.Profile, error) {
+	panic("not implemented")
+}
 
 func TestConnectionService_SendFriendRequest(t *testing.T) {
 	ctx := context.Background()

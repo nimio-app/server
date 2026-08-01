@@ -258,6 +258,116 @@ Add header: `Authorization: Bearer <token>`
 #### Get My Profile
 ```bash
 GET /v1/me/profile
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "uuid",
+      "email": "user@example.com",
+      "email_verified": true,
+      "created_at": "2026-08-01T12:00:00Z"
+    },
+    "profile": {
+      "user_id": "uuid",
+      "username": "johndoe",
+      "display_name": "John Doe",
+      "avatar_url": "https://...",
+      "bio": "Product designer",
+      "created_at": "2026-08-01T12:00:00Z",
+      "updated_at": "2026-08-01T12:00:00Z"
+    }
+  }
+}
+```
+
+#### Update My Profile
+```bash
+PUT /v1/me/profile
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "username": "newusername",
+  "display_name": "Jane Doe",
+  "bio": "Software engineer who loves building things"
+}
+```
+
+**Notes:**
+- All fields are optional - only send the fields you want to update
+- Username must be 3-50 characters, alphanumeric + underscore only
+- Display name max 100 characters
+- Bio max 500 characters
+- Username must be unique across all users
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "profile": {
+      "user_id": "uuid",
+      "username": "newusername",
+      "display_name": "Jane Doe",
+      "bio": "Software engineer who loves building things",
+      "avatar_url": "https://...",
+      "created_at": "2026-08-01T12:00:00Z",
+      "updated_at": "2026-08-01T14:30:00Z"
+    },
+    "message": "Profile updated successfully"
+  }
+}
+```
+
+#### Search Users
+```bash
+GET /v1/users/search?q=john&limit=20
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+- `q` (required): Search query - matches username, email, or display name (min 2 characters)
+- `limit` (optional): Max results to return (default: 20, max: 50)
+
+**Search Behavior:**
+- Case-insensitive search
+- Matches username, email, or display name
+- Results ordered by relevance (exact username match first)
+- Perfect for typeahead/autocomplete in "add friend" UI
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "users": [
+      {
+        "user_id": "uuid",
+        "username": "johndoe",
+        "display_name": "John Doe",
+        "avatar_url": "https://...",
+        "bio": "Product designer",
+        "created_at": "2026-08-01T12:00:00Z",
+        "updated_at": "2026-08-01T12:00:00Z"
+      },
+      {
+        "user_id": "uuid",
+        "username": "johnny_test",
+        "display_name": "Johnny Test",
+        "avatar_url": null,
+        "bio": null,
+        "created_at": "2026-07-28T10:00:00Z",
+        "updated_at": "2026-07-28T10:00:00Z"
+      }
+    ],
+    "count": 2
+  }
+}
 ```
 
 #### Update Status
@@ -765,16 +875,19 @@ Nimio uses [Cloudflare R2](https://www.cloudflare.com/products/r2/) for avatar i
 - [x] Google OAuth sign-in
 - [x] Email verification with Resend
 - [x] Avatar uploads with Cloudflare R2
-- [x] Profile management
+- [x] Profile management (view & update)
+- [x] User search (by username/email)
 - [x] Status creation, updates, and deletion
 - [x] Privacy-aware status feed
+- [x] Connection/friend request system
+- [x] Privacy tier controls (ALL, CIRCLE, MUTUAL)
+- [x] Status visibility filtering by connections
 - [x] JWT middleware
 - [x] Docker development environment
 - [x] Clean Architecture structure
 
 ### 🚧 Phase 2 (Upcoming)
 
-- [ ] Connection/friend request system
 - [ ] "Ask if Free" nudge notifications
 - [ ] Server-Sent Events (SSE) for real-time updates
 - [ ] Status history & analytics

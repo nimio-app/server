@@ -33,6 +33,7 @@ type UserRepository interface {
 	GetProfileByUserID(ctx context.Context, userID uuid.UUID) (*domain.Profile, error)
 	GetProfileByUsername(ctx context.Context, username string) (*domain.Profile, error)
 	UpdateProfile(ctx context.Context, profile *domain.Profile) error
+	SearchUsers(ctx context.Context, query string, limit int) ([]*domain.Profile, error)
 }
 
 type userRepository struct {
@@ -271,19 +272,77 @@ func (r *userRepository) GetProfileByUsername(ctx context.Context, username stri
 func (r *userRepository) UpdateProfile(ctx context.Context, profile *domain.Profile) error {
 	query := `
 		UPDATE profiles
-		SET display_name = $1, avatar_url = $2, bio = $3, updated_at = NOW()
-		WHERE user_id = $4
+		SET username = $1, display_name = $2, avatar_url = $3, bio = $4, updated_at = NOW()
+		WHERE user_id = $5
 		RETURNING updated_at
 	`
-	err := r.db.QueryRow(ctx, query, profile.DisplayName, profile.AvatarURL, profile.Bio, profile.UserID).
+	err := r.db.QueryRow(ctx, query, profile.Username, profile.DisplayName, profile.AvatarURL, profile.Bio, profile.UserID).
 		Scan(&profile.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
 		}
+		if isUniqueViolation(err) {
+			return domain.ErrUsernameTaken
+		}
 		return fmt.Errorf("update profile: %w", err)
 	}
 	return nil
+}
+
+// SearchUsers searches for users by username or email
+func (r *userRepository) SearchUsers(ctx context.Context, query string, limit int) ([]*domain.Profile, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20 // Default limit
+	}
+
+	// Search by username or email (case-insensitive)
+	sqlQuery := `
+		SELECT p.user_id, p.username, p.display_name, p.avatar_url, p.bio, p.created_at, p.updated_at
+		FROM profiles p
+		INNER JOIN users u ON p.user_id = u.id
+		WHERE 
+			LOWER(p.username) LIKE LOWER($1) OR 
+			LOWER(u.email) LIKE LOWER($1) OR
+			LOWER(p.display_name) LIKE LOWER($1)
+		ORDER BY 
+			CASE 
+				WHEN LOWER(p.username) = LOWER($2) THEN 1
+				WHEN LOWER(p.username) LIKE LOWER($1) THEN 2
+				WHEN LOWER(u.email) LIKE LOWER($1) THEN 3
+				ELSE 4
+			END,
+			p.username
+		LIMIT $3
+	`
+
+	// Add wildcards for LIKE search
+	searchPattern := "%" + query + "%"
+
+	rows, err := r.db.Query(ctx, sqlQuery, searchPattern, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search users: %w", err)
+	}
+	defer rows.Close()
+
+	var profiles []*domain.Profile
+	for rows.Next() {
+		profile := &domain.Profile{}
+		err := rows.Scan(
+			&profile.UserID, &profile.Username, &profile.DisplayName,
+			&profile.AvatarURL, &profile.Bio, &profile.CreatedAt, &profile.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan profile: %w", err)
+		}
+		profiles = append(profiles, profile)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate rows: %w", err)
+	}
+
+	return profiles, nil
 }
 
 // isUniqueViolation checks if the error is a unique constraint violation
