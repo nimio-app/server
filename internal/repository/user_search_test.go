@@ -36,7 +36,7 @@ func TestUserRepository_SearchUsers(t *testing.T) {
 			WithArgs("%john%", "john", 20).
 			WillReturnRows(rows)
 
-		profiles, err := repo.SearchUsers(context.Background(), query, limit)
+		profiles, err := repo.SearchUsers(context.Background(), query, limit, nil)
 
 		require.NoError(t, err)
 		assert.Len(t, profiles, 2)
@@ -57,7 +57,7 @@ func TestUserRepository_SearchUsers(t *testing.T) {
 			WithArgs("%nonexistent%", "nonexistent", 20).
 			WillReturnRows(rows)
 
-		profiles, err := repo.SearchUsers(context.Background(), query, limit)
+		profiles, err := repo.SearchUsers(context.Background(), query, limit, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, profiles)

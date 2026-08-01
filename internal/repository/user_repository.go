@@ -33,7 +33,7 @@ type UserRepository interface {
 	GetProfileByUserID(ctx context.Context, userID uuid.UUID) (*domain.Profile, error)
 	GetProfileByUsername(ctx context.Context, username string) (*domain.Profile, error)
 	UpdateProfile(ctx context.Context, profile *domain.Profile) error
-	SearchUsers(ctx context.Context, query string, limit int) ([]*domain.Profile, error)
+	SearchUsers(ctx context.Context, query string, limit int, excludeUserID *uuid.UUID) ([]*domain.Profile, error)
 }
 
 type userRepository struct {
@@ -290,21 +290,29 @@ func (r *userRepository) UpdateProfile(ctx context.Context, profile *domain.Prof
 	return nil
 }
 
-// SearchUsers searches for users by username or email
-func (r *userRepository) SearchUsers(ctx context.Context, query string, limit int) ([]*domain.Profile, error) {
+// SearchUsers searches for users by username or email, excluding the specified user
+func (r *userRepository) SearchUsers(ctx context.Context, query string, limit int, excludeUserID *uuid.UUID) ([]*domain.Profile, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20 // Default limit
 	}
 
-	// Search by username or email (case-insensitive)
+	// Search by username or email (case-insensitive), excluding authenticated user
 	sqlQuery := `
 		SELECT p.user_id, p.username, p.display_name, p.avatar_url, p.bio, p.created_at, p.updated_at
 		FROM profiles p
 		INNER JOIN users u ON p.user_id = u.id
 		WHERE 
-			LOWER(p.username) LIKE LOWER($1) OR 
+			(LOWER(p.username) LIKE LOWER($1) OR 
 			LOWER(u.email) LIKE LOWER($1) OR
-			LOWER(p.display_name) LIKE LOWER($1)
+			LOWER(p.display_name) LIKE LOWER($1))
+	`
+	
+	// Exclude authenticated user from search results
+	if excludeUserID != nil {
+		sqlQuery += ` AND u.id <> $4`
+	}
+	
+	sqlQuery += `
 		ORDER BY 
 			CASE 
 				WHEN LOWER(p.username) = LOWER($2) THEN 1
@@ -319,7 +327,15 @@ func (r *userRepository) SearchUsers(ctx context.Context, query string, limit in
 	// Add wildcards for LIKE search
 	searchPattern := "%" + query + "%"
 
-	rows, err := r.db.Query(ctx, sqlQuery, searchPattern, query, limit)
+	var rows pgx.Rows
+	var err error
+	
+	if excludeUserID != nil {
+		rows, err = r.db.Query(ctx, sqlQuery, searchPattern, query, limit, *excludeUserID)
+	} else {
+		rows, err = r.db.Query(ctx, sqlQuery, searchPattern, query, limit)
+	}
+	
 	if err != nil {
 		return nil, fmt.Errorf("search users: %w", err)
 	}

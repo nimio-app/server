@@ -173,7 +173,9 @@ func (h *ProfileHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Search users
-	profiles, err := h.userRepo.SearchUsers(r.Context(), query, limit)
+	// Exclude authenticated user from search results
+	userID, _ := middleware.GetUserID(r.Context())
+	profiles, err := h.userRepo.SearchUsers(r.Context(), query, limit, &userID)
 	if err != nil {
 		ErrorResponse(w, http.StatusInternalServerError, "failed to search users")
 		return

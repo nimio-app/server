@@ -44,6 +44,7 @@ func (r *connectionRepository) Create(ctx context.Context, connection *domain.Co
 	).Scan(&connection.ID, &connection.CreatedAt, &connection.UpdatedAt)
 	
 	if err != nil {
+		// Catch unique constraint violation (both old and new bidirectional constraint)
 		if isUniqueViolation(err) {
 			return domain.ErrAlreadyExists
 		}

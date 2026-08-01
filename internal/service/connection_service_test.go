@@ -101,7 +101,7 @@ func (m *MockUserRepository) GetProfileByUsername(ctx context.Context, username 
 func (m *MockUserRepository) UpdateProfile(ctx context.Context, profile *domain.Profile) error {
 	panic("not implemented")
 }
-func (m *MockUserRepository) SearchUsers(ctx context.Context, query string, limit int) ([]*domain.Profile, error) {
+func (m *MockUserRepository) SearchUsers(ctx context.Context, query string, limit int, excludeUserID *uuid.UUID) ([]*domain.Profile, error) {
 	panic("not implemented")
 }
 
@@ -145,7 +145,7 @@ func TestConnectionService_SendFriendRequest(t *testing.T) {
 		_, err := service.SendFriendRequest(ctx, fromUserID, fromUserID, domain.RelationshipMutual)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot send friend request to yourself")
+		assert.ErrorIs(t, err, domain.ErrSelfConnection)
 	})
 
 	t.Run("error - user not found", func(t *testing.T) {
@@ -158,7 +158,7 @@ func TestConnectionService_SendFriendRequest(t *testing.T) {
 		_, err := service.SendFriendRequest(ctx, fromUserID, toUserID, domain.RelationshipMutual)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "user not found")
+		assert.ErrorIs(t, err, domain.ErrNotFound)
 
 		userRepo.AssertExpectations(t)
 	})
@@ -176,7 +176,7 @@ func TestConnectionService_SendFriendRequest(t *testing.T) {
 		_, err := service.SendFriendRequest(ctx, fromUserID, toUserID, domain.RelationshipMutual)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already pending")
+		assert.ErrorIs(t, err, domain.ErrDuplicatePending)
 
 		connRepo.AssertExpectations(t)
 		userRepo.AssertExpectations(t)

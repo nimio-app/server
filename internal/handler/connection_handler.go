@@ -78,14 +78,20 @@ func (h *ConnectionHandler) SendFriendRequest(w http.ResponseWriter, r *http.Req
 
 	connection, err := h.connectionService.SendFriendRequest(r.Context(), userID, toUserID, tier)
 	if err != nil {
-		if err == domain.ErrNotFound {
-			ErrorResponse(w, http.StatusNotFound, "user not found")
-		} else if err == domain.ErrAlreadyExists {
-			ErrorResponse(w, http.StatusConflict, "friend request already exists")
-		} else if err == domain.ErrForbidden {
-			ErrorResponse(w, http.StatusForbidden, "connection blocked")
-		} else {
-			ErrorResponse(w, http.StatusInternalServerError, "failed to send friend request")
+		// Map specific errors to HTTP responses with clear messages
+		switch err {
+		case domain.ErrSelfConnection:
+			ErrorResponse(w, http.StatusBadRequest, "You cannot send a connection request to yourself.")
+		case domain.ErrDuplicatePending:
+			ErrorResponse(w, http.StatusConflict, "A connection request already exists.")
+		case domain.ErrAlreadyConnected:
+			ErrorResponse(w, http.StatusConflict, "You are already connected.")
+		case domain.ErrConnectionBlocked:
+			ErrorResponse(w, http.StatusConflict, "Connection request cannot be sent.")
+		case domain.ErrNotFound:
+			ErrorResponse(w, http.StatusNotFound, "User not found.")
+		default:
+			ErrorResponse(w, http.StatusInternalServerError, "Failed to send friend request.")
 		}
 		return
 	}

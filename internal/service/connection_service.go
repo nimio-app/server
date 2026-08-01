@@ -37,39 +37,40 @@ func NewConnectionService(connRepo repository.ConnectionRepository, userRepo rep
 
 // SendFriendRequest sends a friend request from one user to another
 func (s *connectionService) SendFriendRequest(ctx context.Context, fromUserID, toUserID uuid.UUID, tier domain.RelationshipTier) (*domain.Connection, error) {
-	// Can't send request to yourself
+	// Reject self-request
 	if fromUserID == toUserID {
-		return nil, fmt.Errorf("cannot send friend request to yourself: %w", domain.ErrInvalidInput)
+		return nil, domain.ErrSelfConnection
 	}
 
 	// Check if target user exists
 	targetUser, err := s.userRepo.GetByID(ctx, toUserID)
 	if err != nil {
 		if err == domain.ErrNotFound {
-			return nil, fmt.Errorf("user not found: %w", domain.ErrNotFound)
+			return nil, domain.ErrNotFound
 		}
 		return nil, fmt.Errorf("check target user: %w", err)
 	}
 
 	if targetUser == nil {
-		return nil, fmt.Errorf("user not found: %w", domain.ErrNotFound)
+		return nil, domain.ErrNotFound
 	}
 
-	// Check if connection already exists
+	// Check if connection already exists (bidirectional)
 	existingConn, err := s.connRepo.GetByUsers(ctx, fromUserID, toUserID)
 	if err != nil && err != domain.ErrNotFound {
 		return nil, fmt.Errorf("check existing connection: %w", err)
 	}
 
+	// Reject duplicate active relationship/request
 	if existingConn != nil {
 		if existingConn.Status == domain.ConnectionPending {
-			return nil, fmt.Errorf("friend request already pending: %w", domain.ErrAlreadyExists)
+			return nil, domain.ErrDuplicatePending
 		}
 		if existingConn.Status == domain.ConnectionAccepted {
-			return nil, fmt.Errorf("already connected: %w", domain.ErrAlreadyExists)
+			return nil, domain.ErrAlreadyConnected
 		}
 		if existingConn.Status == domain.ConnectionBlocked {
-			return nil, fmt.Errorf("connection blocked: %w", domain.ErrForbidden)
+			return nil, domain.ErrConnectionBlocked
 		}
 	}
 
@@ -90,7 +91,24 @@ func (s *connectionService) SendFriendRequest(ctx context.Context, fromUserID, t
 		UpdatedAt:        now,
 	}
 
+	// Create with DB-level race condition protection
 	if err := s.connRepo.Create(ctx, connection); err != nil {
+		// Handle unique constraint violation from concurrent requests
+		if err == domain.ErrAlreadyExists {
+			// Re-check to determine specific error type
+			existingConn, checkErr := s.connRepo.GetByUsers(ctx, fromUserID, toUserID)
+			if checkErr == nil && existingConn != nil {
+				switch existingConn.Status {
+				case domain.ConnectionPending:
+					return nil, domain.ErrDuplicatePending
+				case domain.ConnectionAccepted:
+					return nil, domain.ErrAlreadyConnected
+				case domain.ConnectionBlocked:
+					return nil, domain.ErrConnectionBlocked
+				}
+			}
+			return nil, domain.ErrDuplicatePending // Fallback
+		}
 		return nil, fmt.Errorf("create connection: %w", err)
 	}
 
