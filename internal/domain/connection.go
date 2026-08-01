@@ -34,3 +34,9 @@ type Connection struct {
 	CreatedAt        time.Time        `json:"created_at"`
 	UpdatedAt        time.Time        `json:"updated_at"`
 }
+
+// ConnectionWithProfile combines connection data with the friend's profile
+type ConnectionWithProfile struct {
+	Connection Connection `json:"connection"`
+	Profile    Profile    `json:"profile"`
+}

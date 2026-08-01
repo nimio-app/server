@@ -325,9 +325,230 @@ DELETE /v1/me/avatar
 }
 ```
 
+### Connection Endpoints
+
+#### Send Friend Request
+```bash
+POST /v1/connections/request
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "to_user_id": "uuid",
+  "relationship_tier": "MUTUAL"
+}
+```
+
+**Relationship Tiers:**
+- `ALL` - Can see all your statuses (lowest privacy)
+- `CIRCLE` - Can see statuses marked CIRCLE_ONLY or ALL_CONNECTIONS
+- `MUTUAL` - Standard friend connection (default)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "connection": {
+      "id": "uuid",
+      "user_id": "uuid",
+      "friend_id": "uuid",
+      "relationship_tier": "MUTUAL",
+      "status": "PENDING",
+      "created_at": "2026-08-01T12:00:00Z"
+    },
+    "message": "Friend request sent successfully"
+  }
+}
+```
+
+#### Accept Friend Request
+```bash
+POST /v1/connections/accept
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "from_user_id": "uuid"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "connection": {
+      "id": "uuid",
+      "user_id": "uuid",
+      "friend_id": "uuid",
+      "relationship_tier": "MUTUAL",
+      "status": "ACCEPTED",
+      "updated_at": "2026-08-01T12:00:00Z"
+    },
+    "message": "Friend request accepted successfully"
+  }
+}
+```
+
+#### Reject Friend Request
+```bash
+POST /v1/connections/reject
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "from_user_id": "uuid"
+}
+```
+
+#### Block User
+```bash
+POST /v1/connections/block
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "user_id": "uuid"
+}
+```
+
+#### Update Relationship Tier
+```bash
+PUT /v1/connections/tier
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "friend_id": "uuid",
+  "relationship_tier": "CIRCLE"
+}
+```
+
+#### Get My Connections
+```bash
+GET /v1/connections?status=ACCEPTED
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+- `status` (optional): Filter by PENDING, ACCEPTED, or BLOCKED
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "connections": [
+      {
+        "connection": {
+          "id": "uuid",
+          "user_id": "uuid",
+          "friend_id": "uuid",
+          "relationship_tier": "MUTUAL",
+          "status": "ACCEPTED",
+          "created_at": "2026-08-01T12:00:00Z"
+        },
+        "profile": {
+          "user_id": "uuid",
+          "username": "johndoe",
+          "display_name": "John Doe",
+          "avatar_url": "https://..."
+        }
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+#### Get Connection Status
+```bash
+GET /v1/connections/status/{userId}
+Authorization: Bearer <token>
+```
+
+Check the connection status with a specific user.
+
+**Response (Connected):**
+```json
+{
+  "success": true,
+  "data": {
+    "connection": {
+      "id": "uuid",
+      "status": "ACCEPTED",
+      "relationship_tier": "MUTUAL"
+    },
+    "status": "ACCEPTED"
+  }
+}
+```
+
+**Response (No Connection):**
+```json
+{
+  "success": true,
+  "data": {
+    "connection": null,
+    "status": "none"
+  }
+}
+```
+
+#### Remove Connection
+```bash
+DELETE /v1/connections/{friendId}
+Authorization: Bearer <token>
+```
+
+Removes an accepted connection (unfriend).
+
 #### Get Status Feed
 ```bash
 GET /v1/feed/status
+```
+
+#### Get Status Feed
+```bash
+GET /v1/feed/status
+Authorization: Bearer <token>
+```
+
+Returns statuses from all accepted connections, filtered by privacy settings.
+
+**Privacy Rules:**
+- `ALL_CONNECTIONS`: Visible to all accepted friends
+- `CIRCLE_ONLY`: Only visible to friends with CIRCLE relationship tier
+- `CUSTOM_LIST`: Only visible to specific users in the custom list
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "statuses": [
+      {
+        "status": {
+          "id": "uuid",
+          "user_id": "uuid",
+          "availability_type": "BUSY",
+          "note": "In a meeting",
+          "visibility_tier": "ALL_CONNECTIONS",
+          "expires_at": "2026-08-01T15:00:00Z",
+          "created_at": "2026-08-01T14:00:00Z"
+        },
+        "profile": {
+          "user_id": "uuid",
+          "username": "johndoe",
+          "display_name": "John Doe",
+          "avatar_url": "https://..."
+        }
+      }
+    ],
+    "count": 1
+  }
+}
 ```
 
 ### Availability Types
@@ -503,13 +724,15 @@ Nimio uses [Cloudflare R2](https://www.cloudflare.com/products/r2/) for avatar i
 - Max file size: 5MB
 - Supported formats: JPEG, PNG, GIF, WebP
 - Automatic old avatar deletion on new upload
-- Public CDN URLs for fast delivery
+- Publ**Connection/friend request system**
+- [x] **Privacy tier controls (ALL, CIRCLE, MUTUAL)**
+- [x] **Status visibility filtering by connections**
+- [x] JWT middleware
+- [x] Docker development environment
+- [x] Clean Architecture structure
 
-**Setup:**
-1. Create an R2 bucket in your Cloudflare dashboard
-2. Generate R2 API tokens (Account ID, Access Key ID, Secret Access Key)
-3. Enable public access on your bucket or set up a custom domain
-4. Add credentials to `.env`:
+### 🚧 Phase 2 (Upcoming)
+
    ```env
    R2_ACCOUNT_ID=your_account_id
    R2_ACCESS_KEY_ID=your_access_key

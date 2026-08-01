@@ -41,6 +41,7 @@ func main() {
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(dbPool)
 	statusRepo := repository.NewStatusRepository(dbPool)
+	connRepo := repository.NewConnectionRepository(dbPool)
 
 	// Initialize email service
 	emailService := service.NewEmailService(
@@ -68,6 +69,7 @@ func main() {
 	// Initialize services
 	authService := service.NewAuthService(userRepo, emailService, googleAuthService, cfg)
 	statusService := service.NewStatusService(statusRepo)
+	connectionService := service.NewConnectionService(connRepo, userRepo)
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(authService)
@@ -76,9 +78,10 @@ func main() {
 	profileHandler := handler.NewProfileHandler(userRepo)
 	statusHandler := handler.NewStatusHandler(statusService)
 	avatarHandler := handler.NewAvatarHandler(storageService, userRepo)
+	connectionHandler := handler.NewConnectionHandler(connectionService)
 
 	// Setup router
-	r := setupRouter(cfg, authService, authHandler, googleAuthHandler, verificationHandler, profileHandler, statusHandler, avatarHandler)
+	r := setupRouter(cfg, authService, authHandler, googleAuthHandler, verificationHandler, profileHandler, statusHandler, avatarHandler, connectionHandler)
 
 	// Create server
 	srv := &http.Server{
@@ -153,6 +156,7 @@ func setupRouter(
 	profileHandler *handler.ProfileHandler,
 	statusHandler *handler.StatusHandler,
 	avatarHandler *handler.AvatarHandler,
+	connectionHandler *handler.ConnectionHandler,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -210,6 +214,18 @@ func setupRouter(
 					r.Put("/", statusHandler.CreateStatus)
 					r.Delete("/", statusHandler.ClearStatus)
 				})
+			})
+
+			// Connection routes
+			r.Route("/connections", func(r chi.Router) {
+				r.Post("/request", connectionHandler.SendFriendRequest)
+				r.Post("/accept", connectionHandler.AcceptFriendRequest)
+				r.Post("/reject", connectionHandler.RejectFriendRequest)
+				r.Post("/block", connectionHandler.BlockUser)
+				r.Put("/tier", connectionHandler.UpdateRelationshipTier)
+				r.Get("/", connectionHandler.GetMyConnections)
+				r.Get("/status/{userId}", connectionHandler.GetConnectionStatus)
+				r.Delete("/{friendId}", connectionHandler.RemoveConnection)
 			})
 
 			// Feed routes
