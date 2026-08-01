@@ -74,21 +74,24 @@ func (s *connectionService) SendFriendRequest(ctx context.Context, fromUserID, t
 		}
 	}
 
-	// Validate tier
-	if tier != domain.RelationshipAll && tier != domain.RelationshipCircle && tier != domain.RelationshipMutual {
-		tier = domain.RelationshipMutual // Default to MUTUAL
+	// Validate and normalize tier (map MUTUAL → ALL)
+	tier = domain.NormalizeRelationshipTier(tier)
+	if !domain.IsValidRelationshipTier(tier) {
+		tier = domain.RelationshipAll // Default to ALL
 	}
 
-	// Create connection
+	// Create connection with directional tiers (both start as ALL by default)
 	now := time.Now()
 	connection := &domain.Connection{
-		ID:               uuid.New(),
-		UserID:           fromUserID,
-		FriendID:         toUserID,
-		RelationshipTier: tier,
-		Status:           domain.ConnectionPending,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:        uuid.New(),
+		UserID:    fromUserID,
+		FriendID:  toUserID,
+		UserTier:  domain.RelationshipAll, // Sender's tier for receiver
+		FriendTier: domain.RelationshipAll, // Receiver's tier for sender (will be set after accept)
+		RelationshipTier: domain.RelationshipAll, // Deprecated field
+		Status:    domain.ConnectionPending,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	// Create with DB-level race condition protection
@@ -245,7 +248,8 @@ func (s *connectionService) RemoveConnection(ctx context.Context, userID, friend
 	return nil
 }
 
-// UpdateRelationshipTier updates the privacy tier of a connection
+// UpdateRelationshipTier updates the privacy tier of a connection (directional)
+// Only updates the requesting user's tier for the counterpart
 func (s *connectionService) UpdateRelationshipTier(ctx context.Context, userID, friendID uuid.UUID, tier domain.RelationshipTier) (*domain.Connection, error) {
 	connection, err := s.connRepo.GetByUsers(ctx, userID, friendID)
 	if err != nil {
@@ -260,18 +264,21 @@ func (s *connectionService) UpdateRelationshipTier(ctx context.Context, userID, 
 		return nil, fmt.Errorf("can only update tier for accepted connections: %w", domain.ErrInvalidInput)
 	}
 
-	// Only the user who initiated can update (or we could allow both - design decision)
-	// For now, allow either user to update their view of the relationship
-	if connection.UserID != userID && connection.FriendID != userID {
+	// Validate and normalize tier (map MUTUAL → ALL, reject invalid)
+	tier = domain.NormalizeRelationshipTier(tier)
+	if !domain.IsValidRelationshipTier(tier) {
+		return nil, fmt.Errorf("invalid relationship tier (must be ALL or CIRCLE): %w", domain.ErrInvalidInput)
+	}
+
+	// Update only the requesting user's tier
+	if connection.UserID == userID {
+		connection.UserTier = tier
+	} else if connection.FriendID == userID {
+		connection.FriendTier = tier
+	} else {
 		return nil, fmt.Errorf("not authorized to update this connection: %w", domain.ErrForbidden)
 	}
 
-	// Validate tier
-	if tier != domain.RelationshipAll && tier != domain.RelationshipCircle && tier != domain.RelationshipMutual {
-		return nil, fmt.Errorf("invalid relationship tier: %w", domain.ErrInvalidInput)
-	}
-
-	connection.RelationshipTier = tier
 	if err := s.connRepo.Update(ctx, connection); err != nil {
 		return nil, fmt.Errorf("update connection: %w", err)
 	}
@@ -302,8 +309,13 @@ func (s *connectionService) GetMyConnections(ctx context.Context, userID uuid.UU
 			continue
 		}
 
-		// Compute direction metadata
+		// Compute direction metadata and directional tiers
 		initiatedByMe := conn.UserID == userID
+		
+		// Get the tier that auth user has assigned to the counterpart
+		myTierForThem := conn.GetTierFor(userID, otherUserID)
+		// Get the tier that counterpart has assigned to auth user  
+		theirTierForMe := conn.GetTierFor(otherUserID, userID)
 		
 		// Compute pending action hint
 		var pendingHint domain.PendingActionHint
@@ -320,6 +332,8 @@ func (s *connectionService) GetMyConnections(ctx context.Context, userID uuid.UU
 			Profile:           *profile,
 			InitiatedByMe:     initiatedByMe,
 			CounterpartUserID: otherUserID.String(),
+			MyTierForThem:     myTierForThem,
+			TheirTierForMe:    theirTierForMe,
 			PendingActionHint: pendingHint,
 		})
 	}

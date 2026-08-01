@@ -32,14 +32,19 @@ func NewConnectionRepository(db *pgxpool.Pool) ConnectionRepository {
 
 // Create creates a new connection
 func (r *connectionRepository) Create(ctx context.Context, connection *domain.Connection) error {
+	// Normalize deprecated MUTUAL to ALL
+	userTier := domain.NormalizeRelationshipTier(connection.UserTier)
+	friendTier := domain.NormalizeRelationshipTier(connection.FriendTier)
+	
 	query := `
-		INSERT INTO connections (id, user_id, friend_id, relationship_tier, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO connections (id, user_id, friend_id, relationship_tier, user_tier, friend_tier, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
 	`
 	err := r.db.QueryRow(ctx, query,
 		connection.ID, connection.UserID, connection.FriendID,
-		connection.RelationshipTier, connection.Status,
+		userTier, userTier, friendTier, // Set relationship_tier to user_tier for backward compat
+		connection.Status,
 		connection.CreatedAt, connection.UpdatedAt,
 	).Scan(&connection.ID, &connection.CreatedAt, &connection.UpdatedAt)
 	
@@ -50,20 +55,27 @@ func (r *connectionRepository) Create(ctx context.Context, connection *domain.Co
 		}
 		return fmt.Errorf("insert connection: %w", err)
 	}
+	
+	// Update the struct with normalized values
+	connection.UserTier = userTier
+	connection.FriendTier = friendTier
+	connection.RelationshipTier = userTier
+	
 	return nil
 }
 
 // GetByID retrieves a connection by ID
 func (r *connectionRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Connection, error) {
 	query := `
-		SELECT id, user_id, friend_id, relationship_tier, status, created_at, updated_at
+		SELECT id, user_id, friend_id, relationship_tier, user_tier, friend_tier, status, created_at, updated_at
 		FROM connections
 		WHERE id = $1
 	`
 	connection := &domain.Connection{}
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&connection.ID, &connection.UserID, &connection.FriendID,
-		&connection.RelationshipTier, &connection.Status,
+		&connection.RelationshipTier, &connection.UserTier, &connection.FriendTier,
+		&connection.Status,
 		&connection.CreatedAt, &connection.UpdatedAt,
 	)
 	if err != nil {
@@ -72,20 +84,27 @@ func (r *connectionRepository) GetByID(ctx context.Context, id uuid.UUID) (*doma
 		}
 		return nil, fmt.Errorf("query connection: %w", err)
 	}
+	
+	// Normalize deprecated values
+	connection.UserTier = domain.NormalizeRelationshipTier(connection.UserTier)
+	connection.FriendTier = domain.NormalizeRelationshipTier(connection.FriendTier)
+	connection.RelationshipTier = domain.NormalizeRelationshipTier(connection.RelationshipTier)
+	
 	return connection, nil
 }
 
 // GetByUsers retrieves a connection between two users (bidirectional)
 func (r *connectionRepository) GetByUsers(ctx context.Context, userID, friendID uuid.UUID) (*domain.Connection, error) {
 	query := `
-		SELECT id, user_id, friend_id, relationship_tier, status, created_at, updated_at
+		SELECT id, user_id, friend_id, relationship_tier, user_tier, friend_tier, status, created_at, updated_at
 		FROM connections
 		WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)
 	`
 	connection := &domain.Connection{}
 	err := r.db.QueryRow(ctx, query, userID, friendID).Scan(
 		&connection.ID, &connection.UserID, &connection.FriendID,
-		&connection.RelationshipTier, &connection.Status,
+		&connection.RelationshipTier, &connection.UserTier, &connection.FriendTier,
+		&connection.Status,
 		&connection.CreatedAt, &connection.UpdatedAt,
 	)
 	if err != nil {
@@ -94,19 +113,29 @@ func (r *connectionRepository) GetByUsers(ctx context.Context, userID, friendID 
 		}
 		return nil, fmt.Errorf("query connection: %w", err)
 	}
+	
+	// Normalize deprecated values
+	connection.UserTier = domain.NormalizeRelationshipTier(connection.UserTier)
+	connection.FriendTier = domain.NormalizeRelationshipTier(connection.FriendTier)
+	connection.RelationshipTier = domain.NormalizeRelationshipTier(connection.RelationshipTier)
+	
 	return connection, nil
 }
 
 // Update updates a connection
 func (r *connectionRepository) Update(ctx context.Context, connection *domain.Connection) error {
+	// Normalize deprecated MUTUAL to ALL
+	userTier := domain.NormalizeRelationshipTier(connection.UserTier)
+	friendTier := domain.NormalizeRelationshipTier(connection.FriendTier)
+	
 	query := `
 		UPDATE connections
-		SET relationship_tier = $1, status = $2, updated_at = NOW()
-		WHERE id = $3
+		SET user_tier = $1, friend_tier = $2, relationship_tier = $1, status = $3, updated_at = NOW()
+		WHERE id = $4
 		RETURNING updated_at
 	`
 	err := r.db.QueryRow(ctx, query,
-		connection.RelationshipTier, connection.Status, connection.ID,
+		userTier, friendTier, connection.Status, connection.ID,
 	).Scan(&connection.UpdatedAt)
 	
 	if err != nil {
@@ -115,6 +144,12 @@ func (r *connectionRepository) Update(ctx context.Context, connection *domain.Co
 		}
 		return fmt.Errorf("update connection: %w", err)
 	}
+	
+	// Update struct with normalized values
+	connection.UserTier = userTier
+	connection.FriendTier = friendTier
+	connection.RelationshipTier = userTier
+	
 	return nil
 }
 
@@ -136,7 +171,7 @@ func (r *connectionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // ListByUserID retrieves all connections for a user with optional status filter
 func (r *connectionRepository) ListByUserID(ctx context.Context, userID uuid.UUID, status domain.ConnectionStatus) ([]*domain.Connection, error) {
 	query := `
-		SELECT id, user_id, friend_id, relationship_tier, status, created_at, updated_at
+		SELECT id, user_id, friend_id, relationship_tier, user_tier, friend_tier, status, created_at, updated_at
 		FROM connections
 		WHERE (user_id = $1 OR friend_id = $1)
 	`
@@ -160,12 +195,19 @@ func (r *connectionRepository) ListByUserID(ctx context.Context, userID uuid.UUI
 		conn := &domain.Connection{}
 		err := rows.Scan(
 			&conn.ID, &conn.UserID, &conn.FriendID,
-			&conn.RelationshipTier, &conn.Status,
+			&conn.RelationshipTier, &conn.UserTier, &conn.FriendTier,
+			&conn.Status,
 			&conn.CreatedAt, &conn.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan connection: %w", err)
 		}
+		
+		// Normalize deprecated values
+		conn.UserTier = domain.NormalizeRelationshipTier(conn.UserTier)
+		conn.FriendTier = domain.NormalizeRelationshipTier(conn.FriendTier)
+		conn.RelationshipTier = domain.NormalizeRelationshipTier(conn.RelationshipTier)
+		
 		connections = append(connections, conn)
 	}
 

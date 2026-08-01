@@ -65,13 +65,12 @@ func (h *ConnectionHandler) SendFriendRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Default to MUTUAL if not specified
-	tier := domain.RelationshipMutual
+	// Normalize and validate tier (map MUTUAL → ALL for backward compatibility)
+	tier := domain.RelationshipAll // Default
 	if req.RelationshipTier != "" {
-		tier = domain.RelationshipTier(req.RelationshipTier)
-		// Validate tier
-		if tier != domain.RelationshipAll && tier != domain.RelationshipCircle && tier != domain.RelationshipMutual {
-			ValidationErrorResponse(w, "invalid relationship_tier (must be ALL, CIRCLE, or MUTUAL)")
+		tier = domain.NormalizeRelationshipTier(domain.RelationshipTier(req.RelationshipTier))
+		if !domain.IsValidRelationshipTier(tier) {
+			ValidationErrorResponse(w, "invalid relationship_tier (must be ALL or CIRCLE)")
 			return
 		}
 	}
@@ -292,8 +291,10 @@ func (h *ConnectionHandler) UpdateRelationshipTier(w http.ResponseWriter, r *htt
 	}
 
 	tier := domain.RelationshipTier(req.RelationshipTier)
-	if tier != domain.RelationshipAll && tier != domain.RelationshipCircle && tier != domain.RelationshipMutual {
-		ValidationErrorResponse(w, "invalid relationship_tier (must be ALL, CIRCLE, or MUTUAL)")
+	// Normalize and validate (map MUTUAL → ALL)
+	tier = domain.NormalizeRelationshipTier(tier)
+	if !domain.IsValidRelationshipTier(tier) {
+		ValidationErrorResponse(w, "invalid relationship_tier (must be ALL or CIRCLE)")
 		return
 	}
 

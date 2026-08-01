@@ -180,5 +180,7 @@ func TestConnectionService_SendFriendRequest_Success(t *testing.T) {
 	assert.Equal(t, fromUserID, connection.UserID)
 	assert.Equal(t, toUserID, connection.FriendID)
 	assert.Equal(t, domain.ConnectionPending, connection.Status)
-	assert.Equal(t, domain.RelationshipMutual, connection.RelationshipTier)
+	// MUTUAL should be normalized to ALL in the 2-tier system
+	assert.Equal(t, domain.RelationshipAll, connection.UserTier)
+	assert.Equal(t, domain.RelationshipAll, connection.FriendTier)
 }

@@ -95,6 +95,7 @@ func (r *statusRepository) DeactivateUserStatuses(ctx context.Context, userID uu
 }
 
 // GetVisibleStatuses retrieves all statuses visible to the requesting user based on privacy rules
+// Uses directional relationship tiers: checks the viewer's tier assignment toward the author
 func (r *statusRepository) GetVisibleStatuses(ctx context.Context, userID uuid.UUID) ([]*domain.StatusWithProfile, error) {
 	// First expire any old statuses
 	_ = r.ExpireOldStatuses(ctx)
@@ -116,8 +117,12 @@ func (r *statusRepository) GetVisibleStatuses(ctx context.Context, userID uuid.U
 			AND (
 				-- ALL_CONNECTIONS: visible to all accepted connections
 				s.visibility_tier = 'ALL_CONNECTIONS'
-				-- CIRCLE_ONLY: visible only to CIRCLE tier connections
-				OR (s.visibility_tier = 'CIRCLE_ONLY' AND c.relationship_tier = 'CIRCLE')
+				-- CIRCLE_ONLY: visible only if viewer is in author's CIRCLE
+				-- Use directional tier: check the tier author assigned to viewer
+				OR (s.visibility_tier = 'CIRCLE_ONLY' AND (
+					(c.user_id = s.user_id AND c.user_tier = 'CIRCLE') OR
+					(c.friend_id = s.user_id AND c.friend_tier = 'CIRCLE')
+				))
 				-- CUSTOM_LIST: check custom visibility list
 				OR (s.visibility_tier = 'CUSTOM_LIST' AND EXISTS (
 					SELECT 1 FROM status_visibility_lists svl 

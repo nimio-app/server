@@ -131,7 +131,9 @@ func TestConnectionService_SendFriendRequest(t *testing.T) {
 		assert.Equal(t, fromUserID, connection.UserID)
 		assert.Equal(t, toUserID, connection.FriendID)
 		assert.Equal(t, domain.ConnectionPending, connection.Status)
-		assert.Equal(t, domain.RelationshipMutual, connection.RelationshipTier)
+		// MUTUAL should be normalized to ALL
+		assert.Equal(t, domain.RelationshipAll, connection.UserTier)
+		assert.Equal(t, domain.RelationshipAll, connection.FriendTier)
 
 		connRepo.AssertExpectations(t)
 		userRepo.AssertExpectations(t)
