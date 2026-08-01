@@ -536,15 +536,15 @@ Authorization: Bearer <token>
 ```
 
 #### Get My Connections
-```bash
-GET /v1/connections?status=ACCEPTED
-Authorization: Bearer <token>
-```
+
+**Endpoint:** `GET /v1/connections?status=<status>`
+
+**Auth:** Required
 
 **Query Parameters:**
-- `status` (optional): Filter by PENDING, ACCEPTED, or BLOCKED
+- `status` (optional): Filter by `PENDING`, `ACCEPTED`, or `BLOCKED`
 
-**Response:**
+**Success Response (200):**
 ```json
 {
   "success": true,
@@ -556,21 +556,309 @@ Authorization: Bearer <token>
           "user_id": "uuid",
           "friend_id": "uuid",
           "relationship_tier": "MUTUAL",
-          "status": "ACCEPTED",
-          "created_at": "2026-08-01T12:00:00Z"
+          "status": "PENDING",
+          "created_at": "2024-01-01T00:00:00Z",
+          "updated_at": "2024-01-01T00:00:00Z"
         },
         "profile": {
           "user_id": "uuid",
           "username": "johndoe",
           "display_name": "John Doe",
-          "avatar_url": "https://..."
-        }
+          "avatar_url": "https://...",
+          "bio": "Software engineer"
+        },
+        "initiated_by_me": false,
+        "counterpart_user_id": "uuid",
+        "pending_action_hint": "INCOMING"
       }
     ],
     "count": 1
   }
 }
 ```
+
+**Direction Metadata:**
+- `initiated_by_me` (boolean): `true` if auth user sent the request, `false` if received
+- `counterpart_user_id` (string): The other user's ID (not the auth user)
+- `pending_action_hint` (string): Only present for PENDING status
+  - `"INCOMING"` → Show Accept/Decline buttons
+  - `"OUTGOING"` → Show Cancel button
+
+**Android UX Guide:**
+```kotlin
+when (connection.status) {
+    "PENDING" -> {
+        if (connection.pending_action_hint == "INCOMING") {
+            // Show: Accept | Decline
+            showAcceptDeclineButtons(connection.counterpart_user_id)
+        } else {
+            // Show: Cancel Request
+            showCancelButton(connection.counterpart_user_id)
+        }
+    }
+    "ACCEPTED" -> {
+        // Show: Remove Friend
+        showRemoveFriendButton(connection.counterpart_user_id)
+    }
+    "BLOCKED" -> {
+        if (connection.initiated_by_me) {
+            // Show: Unblock
+            showUnblockButton(connection.counterpart_user_id)
+        }
+    }
+}
+```
+
+**Examples:**
+
+*Get all pending requests:*
+```bash
+GET /v1/connections?status=PENDING
+```
+
+*Get all accepted friends:*
+```bash
+GET /v1/connections?status=ACCEPTED
+```
+
+*Get all connections (no filter):*
+```bash
+GET /v1/connections
+```
+
+---
+
+#### Connection Direction Examples
+
+**Example 1: Incoming Pending Request (Show Accept/Decline)**
+```json
+{
+  "success": true,
+  "data": {
+    "connections": [
+      {
+        "connection": {
+          "id": "550e8400-e29b-41d4-a716-446655440000",
+          "user_id": "other-user-uuid",
+          "friend_id": "auth-user-uuid",
+          "relationship_tier": "MUTUAL",
+          "status": "PENDING",
+          "created_at": "2026-08-01T10:00:00Z",
+          "updated_at": "2026-08-01T10:00:00Z"
+        },
+        "profile": {
+          "user_id": "other-user-uuid",
+          "username": "alice",
+          "display_name": "Alice Smith",
+          "avatar_url": "https://cdn.example.com/alice.jpg",
+          "bio": "Product designer"
+        },
+        "initiated_by_me": false,
+        "counterpart_user_id": "other-user-uuid",
+        "pending_action_hint": "INCOMING"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+**Example 2: Outgoing Pending Request (Show Cancel)**
+```json
+{
+  "success": true,
+  "data": {
+    "connections": [
+      {
+        "connection": {
+          "id": "660e9511-f30c-52e5-b827-557766551111",
+          "user_id": "auth-user-uuid",
+          "friend_id": "other-user-uuid",
+          "relationship_tier": "MUTUAL",
+          "status": "PENDING",
+          "created_at": "2026-08-01T09:30:00Z",
+          "updated_at": "2026-08-01T09:30:00Z"
+        },
+        "profile": {
+          "user_id": "other-user-uuid",
+          "username": "bob",
+          "display_name": "Bob Johnson",
+          "avatar_url": "https://cdn.example.com/bob.jpg",
+          "bio": "Software engineer"
+        },
+        "initiated_by_me": true,
+        "counterpart_user_id": "other-user-uuid",
+        "pending_action_hint": "OUTGOING"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+**Example 3: Accepted Connection**
+```json
+{
+  "success": true,
+  "data": {
+    "connections": [
+      {
+        "connection": {
+          "id": "770fa622-g41d-63f6-c938-668877662222",
+          "user_id": "auth-user-uuid",
+          "friend_id": "friend-user-uuid",
+          "relationship_tier": "CIRCLE",
+          "status": "ACCEPTED",
+          "created_at": "2026-07-15T14:20:00Z",
+          "updated_at": "2026-07-15T14:25:00Z"
+        },
+        "profile": {
+          "user_id": "friend-user-uuid",
+          "username": "charlie",
+          "display_name": "Charlie Brown",
+          "avatar_url": "https://cdn.example.com/charlie.jpg",
+          "bio": "Designer & developer"
+        },
+        "initiated_by_me": true,
+        "counterpart_user_id": "friend-user-uuid"
+      }
+    ],
+    "count": 1
+  }
+}
+```
+
+---
+
+#### Android/Kotlin Integration
+
+**Data Classes:**
+```kotlin
+data class ConnectionResponse(
+    val success: Boolean,
+    val data: ConnectionData
+)
+
+data class ConnectionData(
+    val connections: List<ConnectionWithProfile>,
+    val count: Int
+)
+
+data class ConnectionWithProfile(
+    val connection: Connection,
+    val profile: Profile,
+    val initiated_by_me: Boolean,
+    val counterpart_user_id: String,
+    val pending_action_hint: String? = null
+)
+
+data class Connection(
+    val id: String,
+    val user_id: String,
+    val friend_id: String,
+    val relationship_tier: String,
+    val status: String,
+    val created_at: String,
+    val updated_at: String
+)
+
+data class Profile(
+    val user_id: String,
+    val username: String,
+    val display_name: String,
+    val avatar_url: String?,
+    val bio: String?
+)
+```
+
+**UI Rendering Logic:**
+```kotlin
+fun renderConnectionItem(conn: ConnectionWithProfile) {
+    val profile = conn.profile
+    
+    when (conn.connection.status) {
+        "PENDING" -> {
+            when (conn.pending_action_hint) {
+                "INCOMING" -> {
+                    // Incoming request - show Accept/Decline
+                    showUserInfo(profile)
+                    showButton("Accept") { 
+                        acceptRequest(conn.counterpart_user_id) 
+                    }
+                    showButton("Decline") { 
+                        declineRequest(conn.counterpart_user_id) 
+                    }
+                }
+                "OUTGOING" -> {
+                    // Outgoing request - show Cancel
+                    showUserInfo(profile)
+                    showButton("Cancel Request") { 
+                        cancelRequest(conn.counterpart_user_id) 
+                    }
+                    showLabel("Pending...")
+                }
+            }
+        }
+        "ACCEPTED" -> {
+            // Accepted friend
+            showUserInfo(profile)
+            showButton("Message") { openChat(conn.counterpart_user_id) }
+            showButton("Remove Friend") { 
+                removeFriend(conn.counterpart_user_id) 
+            }
+        }
+        "BLOCKED" -> {
+            if (conn.initiated_by_me) {
+                // You blocked this user
+                showUserInfo(profile)
+                showButton("Unblock") { 
+                    unblock(conn.counterpart_user_id) 
+                }
+            }
+        }
+    }
+}
+
+// API call implementations
+suspend fun acceptRequest(userId: String) {
+    api.post("/v1/connections/accept") {
+        body = json { "from_user_id" to userId }
+    }
+}
+
+suspend fun declineRequest(userId: String) {
+    api.post("/v1/connections/reject") {
+        body = json { "from_user_id" to userId }
+    }
+}
+
+suspend fun cancelRequest(userId: String) {
+    api.delete("/v1/connections/$userId")
+}
+
+suspend fun removeFriend(userId: String) {
+    api.delete("/v1/connections/$userId")
+}
+```
+
+**Usage Scenarios:**
+
+*Scenario 1: Alice sends you a friend request*
+- Response: `initiated_by_me: false`, `pending_action_hint: "INCOMING"`
+- UI: Show "Accept" and "Decline" buttons
+- User sees: "Alice Smith wants to connect"
+
+*Scenario 2: You sent Bob a friend request*
+- Response: `initiated_by_me: true`, `pending_action_hint: "OUTGOING"`
+- UI: Show "Cancel Request" button with "Pending..." indicator
+- User sees: "Friend request sent to Bob Johnson"
+
+*Scenario 3: Charlie is your friend*
+- Response: `initiated_by_me: true` (or false), no `pending_action_hint`
+- UI: Show "Message" and "Remove Friend" buttons
+- User sees: Normal friend actions
+
+---
 
 #### Get Connection Status
 ```bash

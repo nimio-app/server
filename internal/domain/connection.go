@@ -35,8 +35,19 @@ type Connection struct {
 	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
+// PendingActionHint indicates the action available for a pending connection
+type PendingActionHint string
+
+const (
+	PendingActionIncoming PendingActionHint = "INCOMING" // Can Accept/Decline
+	PendingActionOutgoing PendingActionHint = "OUTGOING" // Can Cancel
+)
+
 // ConnectionWithProfile combines connection data with the friend's profile
 type ConnectionWithProfile struct {
-	Connection Connection `json:"connection"`
-	Profile    Profile    `json:"profile"`
+	Connection         Connection       `json:"connection"`
+	Profile            Profile          `json:"profile"`
+	InitiatedByMe      bool             `json:"initiated_by_me"`
+	CounterpartUserID  string           `json:"counterpart_user_id"`
+	PendingActionHint  PendingActionHint `json:"pending_action_hint,omitempty"`
 }

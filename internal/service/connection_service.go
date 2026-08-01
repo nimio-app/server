@@ -286,7 +286,7 @@ func (s *connectionService) GetMyConnections(ctx context.Context, userID uuid.UU
 		return nil, fmt.Errorf("list connections: %w", err)
 	}
 
-	// Enrich with profile data
+	// Enrich with profile data and direction metadata
 	result := make([]*domain.ConnectionWithProfile, 0, len(connections))
 	for _, conn := range connections {
 		// Determine which user is the "other" user
@@ -302,9 +302,25 @@ func (s *connectionService) GetMyConnections(ctx context.Context, userID uuid.UU
 			continue
 		}
 
+		// Compute direction metadata
+		initiatedByMe := conn.UserID == userID
+		
+		// Compute pending action hint
+		var pendingHint domain.PendingActionHint
+		if conn.Status == domain.ConnectionPending {
+			if initiatedByMe {
+				pendingHint = domain.PendingActionOutgoing
+			} else {
+				pendingHint = domain.PendingActionIncoming
+			}
+		}
+
 		result = append(result, &domain.ConnectionWithProfile{
-			Connection: *conn,
-			Profile:    *profile,
+			Connection:        *conn,
+			Profile:           *profile,
+			InitiatedByMe:     initiatedByMe,
+			CounterpartUserID: otherUserID.String(),
+			PendingActionHint: pendingHint,
 		})
 	}
 
