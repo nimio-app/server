@@ -14,6 +14,9 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 
 	"github.com/nimio/server/internal/config"
 	"github.com/nimio/server/internal/handler"
@@ -37,6 +40,12 @@ func main() {
 	defer dbPool.Close()
 
 	log.Println("✓ Database connection established")
+
+	// Run database migrations
+	if err := runMigrations(cfg); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
+	log.Println("✓ Database migrations completed")
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(dbPool)
@@ -144,6 +153,51 @@ func initDB(cfg *config.Config) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
+}
+
+// runMigrations runs all pending database migrations
+func runMigrations(cfg *config.Config) error {
+	// Build migration source path
+	migrationsPath := "file://migrations"
+	
+	// Build postgres:// URL for migrate library
+	// migrate library requires postgres:// scheme, not key=value format
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Host,
+		cfg.Database.Port,
+		cfg.Database.Name,
+		cfg.Database.SSLMode,
+	)
+	
+	// Create migrator instance
+	m, err := migrate.New(migrationsPath, dbURL)
+	if err != nil {
+		return fmt.Errorf("create migrator: %w", err)
+	}
+	defer m.Close()
+
+	// Run migrations
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("run migrations: %w", err)
+	}
+
+	// Get current version
+	version, dirty, err := m.Version()
+	if err != nil && err != migrate.ErrNilVersion {
+		return fmt.Errorf("get migration version: %w", err)
+	}
+
+	if dirty {
+		log.Printf("⚠️  Migration version %d is dirty - manual intervention may be required", version)
+	} else if err == migrate.ErrNilVersion {
+		log.Println("ℹ️  No migrations have been run yet")
+	} else {
+		log.Printf("ℹ️  Current migration version: %d", version)
+	}
+
+	return nil
 }
 
 // setupRouter configures the HTTP router with all routes and middleware
