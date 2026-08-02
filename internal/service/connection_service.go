@@ -20,6 +20,7 @@ type ConnectionService interface {
 	UpdateRelationshipTier(ctx context.Context, userID, friendID uuid.UUID, tier domain.RelationshipTier) (*domain.Connection, error)
 	GetMyConnections(ctx context.Context, userID uuid.UUID, status domain.ConnectionStatus) ([]*domain.ConnectionWithProfile, error)
 	GetConnectionStatus(ctx context.Context, userID, otherUserID uuid.UUID) (*domain.Connection, error)
+	GetConnectionByID(ctx context.Context, connectionID uuid.UUID) (*domain.Connection, error)
 }
 
 type connectionService struct {
@@ -360,6 +361,19 @@ func (s *connectionService) GetConnectionStatus(ctx context.Context, userID, oth
 			return nil, nil // No connection exists, return nil without error
 		}
 		return nil, fmt.Errorf("get connection: %w", err)
+	}
+
+	return connection, nil
+}
+
+// GetConnectionByID retrieves a connection by its ID
+func (s *connectionService) GetConnectionByID(ctx context.Context, connectionID uuid.UUID) (*domain.Connection, error) {
+	connection, err := s.connRepo.GetByID(ctx, connectionID)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get connection by id: %w", err)
 	}
 
 	return connection, nil

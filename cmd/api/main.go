@@ -277,7 +277,7 @@ func setupRouter(
 				r.Post("/accept", connectionHandler.AcceptFriendRequest)
 				r.Post("/reject", connectionHandler.RejectFriendRequest)
 				r.Post("/block", connectionHandler.BlockUser)
-				r.Put("/tier", connectionHandler.UpdateRelationshipTier)
+				r.Put("/{connectionId}/tier", connectionHandler.UpdateRelationshipTier)
 				r.Get("/", connectionHandler.GetMyConnections)
 				r.Get("/status/{userId}", connectionHandler.GetConnectionStatus)
 				r.Delete("/{friendId}", connectionHandler.RemoveConnection)

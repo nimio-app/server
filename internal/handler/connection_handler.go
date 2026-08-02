@@ -37,7 +37,6 @@ type AcceptFriendRequestRequest struct {
 
 // UpdateTierRequest represents the update tier request body
 type UpdateTierRequest struct {
-	FriendID         string `json:"friend_id"`
 	RelationshipTier string `json:"relationship_tier"`
 }
 
@@ -262,11 +261,24 @@ func (h *ConnectionHandler) RemoveConnection(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// UpdateRelationshipTier handles PUT /v1/connections/tier
+// UpdateRelationshipTier handles PUT /v1/connections/:connectionId/tier
 func (h *ConnectionHandler) UpdateRelationshipTier(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		ErrorResponse(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// Get connection ID from URL
+	connectionIDStr := chi.URLParam(r, "connectionId")
+	if connectionIDStr == "" {
+		ValidationErrorResponse(w, "connection_id is required")
+		return
+	}
+
+	connectionID, err := uuid.Parse(connectionIDStr)
+	if err != nil {
+		ValidationErrorResponse(w, "invalid connection_id format")
 		return
 	}
 
@@ -276,27 +288,38 @@ func (h *ConnectionHandler) UpdateRelationshipTier(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if req.FriendID == "" {
-		ValidationErrorResponse(w, "friend_id is required")
-		return
-	}
-
 	if req.RelationshipTier == "" {
 		ValidationErrorResponse(w, "relationship_tier is required")
 		return
 	}
 
-	friendID, err := uuid.Parse(req.FriendID)
-	if err != nil {
-		ValidationErrorResponse(w, "invalid friend_id format")
+	// Normalize and validate tier
+	tier := domain.NormalizeRelationshipTier(domain.RelationshipTier(req.RelationshipTier))
+	if !domain.IsValidRelationshipTier(tier) {
+		ValidationErrorResponse(w, "invalid relationship_tier (must be ALL or CIRCLE)")
 		return
 	}
 
-	tier := domain.RelationshipTier(req.RelationshipTier)
-	// Normalize and validate (map MUTUAL → ALL)
-	tier = domain.NormalizeRelationshipTier(tier)
-	if !domain.IsValidRelationshipTier(tier) {
-		ValidationErrorResponse(w, "invalid relationship_tier (must be ALL or CIRCLE)")
+	// Get the connection to find the friend ID
+	existingConnection, err := h.connectionService.GetConnectionByID(r.Context(), connectionID)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			ErrorResponse(w, http.StatusNotFound, "connection not found")
+		} else {
+			log.Printf("ERROR: GetConnectionByID failed for connection=%s: %v", connectionID, err)
+			ErrorResponse(w, http.StatusInternalServerError, "failed to get connection")
+		}
+		return
+	}
+
+	// Determine the friend ID based on who the authenticated user is
+	var friendID uuid.UUID
+	if existingConnection.UserID == userID {
+		friendID = existingConnection.FriendID
+	} else if existingConnection.FriendID == userID {
+		friendID = existingConnection.UserID
+	} else {
+		ErrorResponse(w, http.StatusForbidden, "not authorized to update this connection")
 		return
 	}
 
@@ -307,6 +330,7 @@ func (h *ConnectionHandler) UpdateRelationshipTier(w http.ResponseWriter, r *htt
 		} else if err == domain.ErrForbidden {
 			ErrorResponse(w, http.StatusForbidden, "not authorized to update this connection")
 		} else {
+			log.Printf("ERROR: UpdateRelationshipTier failed for user=%s friend=%s: %v", userID, friendID, err)
 			ErrorResponse(w, http.StatusInternalServerError, "failed to update relationship tier")
 		}
 		return
