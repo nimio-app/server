@@ -235,9 +235,20 @@ func (s *connectionService) RemoveConnection(ctx context.Context, userID, friend
 		return fmt.Errorf("get connection: %w", err)
 	}
 
-	// Can only remove accepted connections
-	if connection.Status != domain.ConnectionAccepted {
-		return fmt.Errorf("can only remove accepted connections: %w", domain.ErrInvalidInput)
+	// Allow deletion of:
+	// 1. ACCEPTED connections (either user can remove)
+	// 2. PENDING connections (only the sender can cancel)
+	if connection.Status == domain.ConnectionPending {
+		// Only the sender can cancel a pending request
+		if connection.UserID != userID {
+			return fmt.Errorf("cannot cancel request you didn't send: %w", domain.ErrForbidden)
+		}
+	} else if connection.Status == domain.ConnectionAccepted {
+		// Either user can remove an accepted connection
+		// (already validated by GetByUsers)
+	} else {
+		// BLOCKED or other statuses cannot be removed this way
+		return fmt.Errorf("cannot remove connection with status %s: %w", connection.Status, domain.ErrInvalidInput)
 	}
 
 	// Delete the connection

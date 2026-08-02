@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -250,6 +251,7 @@ func (h *ConnectionHandler) RemoveConnection(w http.ResponseWriter, r *http.Requ
 		if err == domain.ErrNotFound {
 			ErrorResponse(w, http.StatusNotFound, "connection not found")
 		} else {
+			log.Printf("ERROR: RemoveConnection failed for user=%s friend=%s: %v", userID, friendID, err)
 			ErrorResponse(w, http.StatusInternalServerError, "failed to remove connection")
 		}
 		return
