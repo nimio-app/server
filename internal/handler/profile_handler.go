@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/nimio/server/internal/domain"
@@ -126,10 +127,12 @@ func (h *ProfileHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request)
 	// Update profile
 	if err := h.userRepo.UpdateProfile(r.Context(), profile); err != nil {
 		if err == domain.ErrUsernameTaken {
+			log.Printf("WARN: Username already taken: %s (user=%s)", profile.Username, userID)
 			ErrorResponse(w, http.StatusConflict, "username already taken")
 		} else if err == domain.ErrNotFound {
 			ErrorResponse(w, http.StatusNotFound, "profile not found")
 		} else {
+			log.Printf("ERROR: UpdateProfile failed for user=%s: %v", userID, err)
 			ErrorResponse(w, http.StatusInternalServerError, "failed to update profile")
 		}
 		return
