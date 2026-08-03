@@ -27,6 +27,9 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetByGoogleID(ctx context.Context, googleID string) (*domain.User, error)
+	CreateRefreshToken(ctx context.Context, token *domain.RefreshToken) error
+	GetValidRefreshTokenByHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error)
+	RevokeRefreshToken(ctx context.Context, tokenID uuid.UUID) error
 	GetByVerificationToken(ctx context.Context, token string) (*domain.User, error)
 	UpdateVerificationToken(ctx context.Context, userID uuid.UUID, token *string, expiresAt *time.Time) error
 	MarkEmailAsVerified(ctx context.Context, userID uuid.UUID) error
@@ -163,6 +166,78 @@ func (r *userRepository) GetByGoogleID(ctx context.Context, googleID string) (*d
 	}
 
 	return user, nil
+}
+
+// CreateRefreshToken stores a hashed refresh token for a user session.
+func (r *userRepository) CreateRefreshToken(ctx context.Context, token *domain.RefreshToken) error {
+	query := `
+		INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at, revoked_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`
+	_, err := r.db.Exec(ctx, query,
+		token.ID,
+		token.UserID,
+		token.TokenHash,
+		token.ExpiresAt,
+		token.CreatedAt,
+		token.RevokedAt,
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return domain.ErrAlreadyExists
+		}
+		return fmt.Errorf("insert refresh token: %w", err)
+	}
+	return nil
+}
+
+// GetValidRefreshTokenByHash returns a non-expired, non-revoked refresh token by hash.
+func (r *userRepository) GetValidRefreshTokenByHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
+	query := `
+		SELECT id, user_id, token_hash, expires_at, created_at, revoked_at
+		FROM refresh_tokens
+		WHERE token_hash = $1
+		AND revoked_at IS NULL
+		AND expires_at > NOW()
+	`
+
+	token := &domain.RefreshToken{}
+	err := r.db.QueryRow(ctx, query, tokenHash).Scan(
+		&token.ID,
+		&token.UserID,
+		&token.TokenHash,
+		&token.ExpiresAt,
+		&token.CreatedAt,
+		&token.RevokedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("query refresh token: %w", err)
+	}
+
+	return token, nil
+}
+
+// RevokeRefreshToken revokes an active refresh token by id.
+func (r *userRepository) RevokeRefreshToken(ctx context.Context, tokenID uuid.UUID) error {
+	query := `
+		UPDATE refresh_tokens
+		SET revoked_at = NOW()
+		WHERE id = $1
+		AND revoked_at IS NULL
+	`
+
+	result, err := r.db.Exec(ctx, query, tokenID)
+	if err != nil {
+		return fmt.Errorf("revoke refresh token: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
 }
 
 // GetByVerificationToken retrieves a user by verification token

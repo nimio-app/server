@@ -37,9 +37,21 @@ type LoginRequest struct {
 
 // AuthResponse represents the authentication response
 type AuthResponse struct {
-	User    domain.User    `json:"user"`
-	Profile domain.Profile `json:"profile"`
-	Token   string         `json:"token"`
+	User         domain.User    `json:"user"`
+	Profile      domain.Profile `json:"profile"`
+	Token        string         `json:"token"`
+	RefreshToken string         `json:"refresh_token"`
+}
+
+// RefreshTokenRequest represents a refresh token request body.
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// RefreshTokenResponse is returned after successful token refresh.
+type RefreshTokenResponse struct {
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 // Register handles POST /v1/auth/register
@@ -57,7 +69,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register user
-	user, profile, token, err := h.authService.Register(r.Context(), req.Email, req.Password, req.Username, req.DisplayName)
+	user, profile, token, refreshToken, err := h.authService.Register(r.Context(), req.Email, req.Password, req.Username, req.DisplayName)
 	if err != nil {
 		switch err {
 		case domain.ErrEmailTaken:
@@ -71,9 +83,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	SuccessResponse(w, http.StatusCreated, AuthResponse{
-		User:    *user,
-		Profile: *profile,
-		Token:   token,
+		User:         *user,
+		Profile:      *profile,
+		Token:        token,
+		RefreshToken: refreshToken,
 	})
 }
 
@@ -92,7 +105,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Login user
-	user, profile, token, err := h.authService.Login(r.Context(), req.Email, req.Password)
+	user, profile, token, refreshToken, err := h.authService.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		switch err {
 		case domain.ErrInvalidCredentials:
@@ -104,9 +117,39 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	SuccessResponse(w, http.StatusOK, AuthResponse{
-		User:    *user,
-		Profile: *profile,
-		Token:   token,
+		User:         *user,
+		Profile:      *profile,
+		Token:        token,
+		RefreshToken: refreshToken,
+	})
+}
+
+// RefreshToken handles POST /v1/auth/refresh.
+func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	var req RefreshTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		ValidationErrorResponse(w, "invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		ValidationErrorResponse(w, "refresh_token is required")
+		return
+	}
+
+	token, refreshToken, err := h.authService.RefreshAccessToken(r.Context(), req.RefreshToken)
+	if err != nil {
+		if err == domain.ErrInvalidToken || err == domain.ErrTokenExpired {
+			ErrorResponse(w, http.StatusUnauthorized, "invalid or expired refresh token")
+			return
+		}
+		ErrorResponse(w, http.StatusInternalServerError, "failed to refresh token")
+		return
+	}
+
+	SuccessResponse(w, http.StatusOK, RefreshTokenResponse{
+		Token:        token,
+		RefreshToken: refreshToken,
 	})
 }
 

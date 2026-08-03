@@ -86,6 +86,15 @@ func (m *MockUserRepository) GetByEmail(ctx context.Context, email string) (*dom
 func (m *MockUserRepository) GetByGoogleID(ctx context.Context, googleID string) (*domain.User, error) {
 	panic("not implemented")
 }
+func (m *MockUserRepository) CreateRefreshToken(ctx context.Context, token *domain.RefreshToken) error {
+	panic("not implemented")
+}
+func (m *MockUserRepository) GetValidRefreshTokenByHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error) {
+	panic("not implemented")
+}
+func (m *MockUserRepository) RevokeRefreshToken(ctx context.Context, tokenID uuid.UUID) error {
+	panic("not implemented")
+}
 func (m *MockUserRepository) GetByVerificationToken(ctx context.Context, token string) (*domain.User, error) {
 	panic("not implemented")
 }

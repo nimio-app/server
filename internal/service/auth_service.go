@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -19,9 +20,10 @@ import (
 
 // AuthService handles authentication logic
 type AuthService interface {
-	Register(ctx context.Context, email, password, username, displayName string) (*domain.User, *domain.Profile, string, error)
-	Login(ctx context.Context, email, password string) (*domain.User, *domain.Profile, string, error)
-	GoogleSignIn(ctx context.Context, idToken string) (*domain.User, *domain.Profile, string, error)
+	Register(ctx context.Context, email, password, username, displayName string) (*domain.User, *domain.Profile, string, string, error)
+	Login(ctx context.Context, email, password string) (*domain.User, *domain.Profile, string, string, error)
+	GoogleSignIn(ctx context.Context, idToken string) (*domain.User, *domain.Profile, string, string, error)
+	RefreshAccessToken(ctx context.Context, refreshToken string) (string, string, error)
 	ValidateToken(tokenString string) (uuid.UUID, error)
 	VerifyEmail(ctx context.Context, token string) error
 	ResendVerificationEmail(ctx context.Context, email string) error
@@ -49,35 +51,35 @@ func NewAuthService(userRepo repository.UserRepository, emailService EmailServic
 }
 
 // Register creates a new user account
-func (s *authService) Register(ctx context.Context, email, password, username, displayName string) (*domain.User, *domain.Profile, string, error) {
+func (s *authService) Register(ctx context.Context, email, password, username, displayName string) (*domain.User, *domain.Profile, string, string, error) {
 	// Check if email exists
 	existingUser, err := s.userRepo.GetByEmail(ctx, email)
 	if err == nil && existingUser != nil {
-		return nil, nil, "", domain.ErrEmailTaken
+		return nil, nil, "", "", domain.ErrEmailTaken
 	}
 	if err != nil && err != domain.ErrNotFound {
-		return nil, nil, "", fmt.Errorf("check email: %w", err)
+		return nil, nil, "", "", fmt.Errorf("check email: %w", err)
 	}
 
 	// Check if username exists
 	existingProfile, err := s.userRepo.GetProfileByUsername(ctx, username)
 	if err == nil && existingProfile != nil {
-		return nil, nil, "", domain.ErrUsernameTaken
+		return nil, nil, "", "", domain.ErrUsernameTaken
 	}
 	if err != nil && err != domain.ErrNotFound {
-		return nil, nil, "", fmt.Errorf("check username: %w", err)
+		return nil, nil, "", "", fmt.Errorf("check username: %w", err)
 	}
 
 	// Hash password
 	passwordHash, err := hashPassword(password)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("hash password: %w", err)
+		return nil, nil, "", "", fmt.Errorf("hash password: %w", err)
 	}
 
 	// Generate verification token
 	verificationToken, err := generateVerificationToken()
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("generate verification token: %w", err)
+		return nil, nil, "", "", fmt.Errorf("generate verification token: %w", err)
 	}
 
 	expiresAt := time.Now().Add(24 * time.Hour) // 24 hour expiry
@@ -103,7 +105,7 @@ func (s *authService) Register(ctx context.Context, email, password, username, d
 	}
 
 	if err := s.userRepo.Create(ctx, user, profile); err != nil {
-		return nil, nil, "", fmt.Errorf("create user: %w", err)
+		return nil, nil, "", "", fmt.Errorf("create user: %w", err)
 	}
 
 	// Send verification email (don't fail registration if email fails)
@@ -113,43 +115,43 @@ func (s *authService) Register(ctx context.Context, email, password, username, d
 	}
 
 	// Generate JWT token
-	token, err := s.generateToken(user.ID)
+	token, refreshToken, err := s.generateSessionTokens(ctx, user.ID)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("generate token: %w", err)
+		return nil, nil, "", "", fmt.Errorf("generate session tokens: %w", err)
 	}
 
-	return user, profile, token, nil
+	return user, profile, token, refreshToken, nil
 }
 
 // Login authenticates a user
-func (s *authService) Login(ctx context.Context, email, password string) (*domain.User, *domain.Profile, string, error) {
+func (s *authService) Login(ctx context.Context, email, password string) (*domain.User, *domain.Profile, string, string, error) {
 	// Get user by email
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if err == domain.ErrNotFound {
-			return nil, nil, "", domain.ErrInvalidCredentials
+			return nil, nil, "", "", domain.ErrInvalidCredentials
 		}
-		return nil, nil, "", fmt.Errorf("get user: %w", err)
+		return nil, nil, "", "", fmt.Errorf("get user: %w", err)
 	}
 
 	// Verify password
 	if !verifyPassword(password, user.PasswordHash) {
-		return nil, nil, "", domain.ErrInvalidCredentials
+		return nil, nil, "", "", domain.ErrInvalidCredentials
 	}
 
 	// Get profile
 	profile, err := s.userRepo.GetProfileByUserID(ctx, user.ID)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("get profile: %w", err)
+		return nil, nil, "", "", fmt.Errorf("get profile: %w", err)
 	}
 
-	// Generate JWT token
-	token, err := s.generateToken(user.ID)
+	// Generate session tokens
+	token, refreshToken, err := s.generateSessionTokens(ctx, user.ID)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("generate token: %w", err)
+		return nil, nil, "", "", fmt.Errorf("generate session tokens: %w", err)
 	}
 
-	return user, profile, token, nil
+	return user, profile, token, refreshToken, nil
 }
 
 // ValidateToken validates a JWT token and returns the user ID
@@ -206,6 +208,64 @@ func (s *authService) generateToken(userID uuid.UUID) (string, error) {
 	}
 
 	return tokenString, nil
+}
+
+// generateSessionTokens creates and persists a refresh token plus short-lived access token.
+func (s *authService) generateSessionTokens(ctx context.Context, userID uuid.UUID) (string, string, error) {
+	accessToken, err := s.generateToken(userID)
+	if err != nil {
+		return "", "", err
+	}
+
+	rawRefreshToken, err := generateRefreshToken()
+	if err != nil {
+		return "", "", err
+	}
+
+	hashed := hashToken(rawRefreshToken)
+	refresh := &domain.RefreshToken{
+		ID:        uuid.New(),
+		UserID:    userID,
+		TokenHash: hashed,
+		ExpiresAt: time.Now().Add(s.refreshExpiry),
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.userRepo.CreateRefreshToken(ctx, refresh); err != nil {
+		return "", "", err
+	}
+
+	return accessToken, rawRefreshToken, nil
+}
+
+// RefreshAccessToken rotates a valid refresh token and returns a fresh access+refresh pair.
+func (s *authService) RefreshAccessToken(ctx context.Context, refreshToken string) (string, string, error) {
+	if strings.TrimSpace(refreshToken) == "" {
+		return "", "", domain.ErrInvalidToken
+	}
+
+	hashed := hashToken(refreshToken)
+	stored, err := s.userRepo.GetValidRefreshTokenByHash(ctx, hashed)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return "", "", domain.ErrInvalidToken
+		}
+		return "", "", fmt.Errorf("find refresh token: %w", err)
+	}
+
+	if err := s.userRepo.RevokeRefreshToken(ctx, stored.ID); err != nil {
+		if err == domain.ErrNotFound {
+			return "", "", domain.ErrInvalidToken
+		}
+		return "", "", fmt.Errorf("revoke refresh token: %w", err)
+	}
+
+	accessToken, newRefreshToken, err := s.generateSessionTokens(ctx, stored.UserID)
+	if err != nil {
+		return "", "", fmt.Errorf("generate refreshed session tokens: %w", err)
+	}
+
+	return accessToken, newRefreshToken, nil
 }
 
 // hashPassword hashes a password using Argon2id
@@ -348,24 +408,24 @@ func generateVerificationToken() (string, error) {
 }
 
 // GoogleSignIn handles Google OAuth sign-in
-func (s *authService) GoogleSignIn(ctx context.Context, idToken string) (*domain.User, *domain.Profile, string, error) {
+func (s *authService) GoogleSignIn(ctx context.Context, idToken string) (*domain.User, *domain.Profile, string, string, error) {
 	// Verify the Google ID token
 	claims, err := s.googleAuth.VerifyIDToken(ctx, idToken)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("invalid Google ID token: %w", err)
+		return nil, nil, "", "", fmt.Errorf("invalid Google ID token: %w", err)
 	}
 
 	// Check if user exists by Google ID
 	user, err := s.userRepo.GetByGoogleID(ctx, claims.Sub)
 	if err != nil && err != domain.ErrNotFound {
-		return nil, nil, "", fmt.Errorf("check google user: %w", err)
+		return nil, nil, "", "", fmt.Errorf("check google user: %w", err)
 	}
 
 	// If user doesn't exist by Google ID, check by email
 	if user == nil {
 		user, err = s.userRepo.GetByEmail(ctx, claims.Email)
 		if err != nil && err != domain.ErrNotFound {
-			return nil, nil, "", fmt.Errorf("check email: %w", err)
+			return nil, nil, "", "", fmt.Errorf("check email: %w", err)
 		}
 	}
 
@@ -374,16 +434,16 @@ func (s *authService) GoogleSignIn(ctx context.Context, idToken string) (*domain
 		// Get profile
 		profile, err := s.userRepo.GetProfileByUserID(ctx, user.ID)
 		if err != nil {
-			return nil, nil, "", fmt.Errorf("get profile: %w", err)
+			return nil, nil, "", "", fmt.Errorf("get profile: %w", err)
 		}
 
-		// Generate JWT token
-		token, err := s.generateToken(user.ID)
+		// Generate session tokens
+		token, refreshToken, err := s.generateSessionTokens(ctx, user.ID)
 		if err != nil {
-			return nil, nil, "", fmt.Errorf("generate token: %w", err)
+			return nil, nil, "", "", fmt.Errorf("generate session tokens: %w", err)
 		}
 
-		return user, profile, token, nil
+		return user, profile, token, refreshToken, nil
 	}
 
 	// User doesn't exist, create new account
@@ -428,16 +488,29 @@ func (s *authService) GoogleSignIn(ctx context.Context, idToken string) (*domain
 
 	// Save to database
 	if err := s.userRepo.Create(ctx, newUser, profile); err != nil {
-		return nil, nil, "", fmt.Errorf("create user: %w", err)
+		return nil, nil, "", "", fmt.Errorf("create user: %w", err)
 	}
 
-	// Generate JWT token
-	token, err := s.generateToken(newUser.ID)
+	// Generate session tokens
+	token, refreshToken, err := s.generateSessionTokens(ctx, newUser.ID)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("generate token: %w", err)
+		return nil, nil, "", "", fmt.Errorf("generate session tokens: %w", err)
 	}
 
-	return newUser, profile, token, nil
+	return newUser, profile, token, refreshToken, nil
+}
+
+func generateRefreshToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes), nil
+}
+
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return base64.RawStdEncoding.EncodeToString(sum[:])
 }
 
 // generateUsernameFromEmail creates a username from email

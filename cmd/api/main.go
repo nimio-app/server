@@ -246,6 +246,7 @@ func setupRouter(
 			r.Post("/register", authHandler.Register)
 			r.Post("/verify-email", verificationHandler.VerifyEmail)
 			r.Post("/resend-verification", verificationHandler.ResendVerification)
+			r.Post("/refresh", authHandler.RefreshToken)
 			r.Post("/google", googleAuthHandler.GoogleSignIn)
 			r.Post("/login", authHandler.Login)
 		})

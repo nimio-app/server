@@ -90,7 +90,7 @@ func Load() (*Config, error) {
 		JWT: JWTConfig{
 			Secret:        getEnv("JWT_SECRET", ""),
 			AccessExpiry:  parseDuration(getEnv("JWT_ACCESS_EXPIRY", "15m"), 15*time.Minute),
-			RefreshExpiry: parseDuration(getEnv("JWT_REFRESH_EXPIRY", "168h"), 168*time.Hour),
+			RefreshExpiry: parseDuration(getEnv("JWT_REFRESH_EXPIRY", "2160h"), 2160*time.Hour),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: parseSlice(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000")),

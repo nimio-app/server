@@ -37,15 +37,16 @@ func (h *GoogleAuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	user, profile, token, err := h.authService.GoogleSignIn(r.Context(), req.IDToken)
+	user, profile, token, refreshToken, err := h.authService.GoogleSignIn(r.Context(), req.IDToken)
 	if err != nil {
 		ErrorResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	SuccessResponse(w, http.StatusOK, map[string]interface{}{
-		"user":    user,
-		"profile": profile,
-		"token":   token,
+		"user":          user,
+		"profile":       profile,
+		"token":         token,
+		"refresh_token": refreshToken,
 	})
 }
