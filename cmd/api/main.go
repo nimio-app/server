@@ -259,6 +259,7 @@ func setupRouter(
 			r.Route("/me", func(r chi.Router) {
 				r.Get("/profile", profileHandler.GetMyProfile)
 				r.Put("/profile", profileHandler.UpdateMyProfile)
+				r.Get("/statuses", statusHandler.GetMyStatuses)
 				
 				// Avatar routes
 				r.Post("/avatar", avatarHandler.UploadAvatar)

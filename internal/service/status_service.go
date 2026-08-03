@@ -14,6 +14,7 @@ import (
 type StatusService interface {
 	CreateStatus(ctx context.Context, userID uuid.UUID, availabilityType domain.AvailabilityType, note *string, visibilityTier domain.VisibilityTier, expiresAt *time.Time) (*domain.Status, error)
 	GetUserStatus(ctx context.Context, userID uuid.UUID) (*domain.Status, error)
+	GetUserStatuses(ctx context.Context, userID uuid.UUID) ([]*domain.Status, error)
 	ClearUserStatus(ctx context.Context, userID uuid.UUID) error
 	GetVisibleStatuses(ctx context.Context, userID uuid.UUID) ([]*domain.StatusWithProfile, error)
 }
@@ -41,8 +42,9 @@ func (s *statusService) CreateStatus(ctx context.Context, userID uuid.UUID, avai
 		return nil, fmt.Errorf("expires_at must be in the future: %w", domain.ErrInvalidInput)
 	}
 
-	// Deactivate any existing active statuses
-	_ = s.statusRepo.DeactivateUserStatuses(ctx, userID)
+	// Replace only the active status in the same visibility tier.
+	// This allows concurrent statuses like ALL_CONNECTIONS + CIRCLE_ONLY.
+	_ = s.statusRepo.DeactivateUserStatusesByVisibility(ctx, userID, visibilityTier)
 
 	// Create new status
 	status := &domain.Status{
@@ -78,6 +80,29 @@ func (s *statusService) GetUserStatus(ctx context.Context, userID uuid.UUID) (*d
 	}
 
 	return status, nil
+}
+
+// GetUserStatuses retrieves all active statuses for a user.
+func (s *statusService) GetUserStatuses(ctx context.Context, userID uuid.UUID) ([]*domain.Status, error) {
+	statuses, err := s.statusRepo.GetActiveStatusesByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]*domain.Status, 0, len(statuses))
+	for _, status := range statuses {
+		if status.IsExpired() {
+			_ = s.statusRepo.DeactivateUserStatusesByVisibility(ctx, userID, status.VisibilityTier)
+			continue
+		}
+		filtered = append(filtered, status)
+	}
+
+	if len(filtered) == 0 {
+		return nil, domain.ErrNoActiveStatus
+	}
+
+	return filtered, nil
 }
 
 // ClearUserStatus deactivates the user's current status

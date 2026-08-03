@@ -15,7 +15,9 @@ import (
 type StatusRepository interface {
 	Create(ctx context.Context, status *domain.Status) error
 	GetActiveByUserID(ctx context.Context, userID uuid.UUID) (*domain.Status, error)
+	GetActiveStatusesByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Status, error)
 	DeactivateUserStatuses(ctx context.Context, userID uuid.UUID) error
+	DeactivateUserStatusesByVisibility(ctx context.Context, userID uuid.UUID, visibilityTier domain.VisibilityTier) error
 	GetVisibleStatuses(ctx context.Context, userID uuid.UUID) ([]*domain.StatusWithProfile, error)
 	ExpireOldStatuses(ctx context.Context) error
 }
@@ -60,6 +62,8 @@ func (r *statusRepository) GetActiveByUserID(ctx context.Context, userID uuid.UU
 		SELECT id, user_id, availability_type, note, visibility_tier, expires_at, created_at, updated_at, is_active
 		FROM statuses
 		WHERE user_id = $1 AND is_active = TRUE
+		ORDER BY created_at DESC
+		LIMIT 1
 	`
 	status := &domain.Status{}
 	err := r.db.QueryRow(ctx, query, userID).Scan(
@@ -73,6 +77,63 @@ func (r *statusRepository) GetActiveByUserID(ctx context.Context, userID uuid.UU
 		return nil, fmt.Errorf("query status: %w", err)
 	}
 	return status, nil
+}
+
+// GetActiveStatusesByUserID retrieves all active statuses for a user.
+func (r *statusRepository) GetActiveStatusesByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Status, error) {
+	// First expire any old statuses.
+	_ = r.ExpireOldStatuses(ctx)
+
+	query := `
+		SELECT id, user_id, availability_type, note, visibility_tier, expires_at, created_at, updated_at, is_active
+		FROM statuses
+		WHERE user_id = $1 AND is_active = TRUE
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("query active statuses: %w", err)
+	}
+	defer rows.Close()
+
+	statuses := make([]*domain.Status, 0)
+	for rows.Next() {
+		status := &domain.Status{}
+		err := rows.Scan(
+			&status.ID, &status.UserID, &status.AvailabilityType, &status.Note,
+			&status.VisibilityTier, &status.ExpiresAt, &status.CreatedAt, &status.UpdatedAt, &status.IsActive,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan active status: %w", err)
+		}
+		statuses = append(statuses, status)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active statuses: %w", err)
+	}
+
+	if len(statuses) == 0 {
+		return nil, domain.ErrNoActiveStatus
+	}
+
+	return statuses, nil
+}
+
+// DeactivateUserStatusesByVisibility deactivates active statuses for a user within one visibility tier.
+func (r *statusRepository) DeactivateUserStatusesByVisibility(ctx context.Context, userID uuid.UUID, visibilityTier domain.VisibilityTier) error {
+	query := `
+		UPDATE statuses
+		SET is_active = FALSE, updated_at = NOW()
+		WHERE user_id = $1 AND visibility_tier = $2 AND is_active = TRUE
+	`
+	_, err := r.db.Exec(ctx, query, userID, visibilityTier)
+	if err != nil {
+		return fmt.Errorf("deactivate statuses by visibility: %w", err)
+	}
+
+	return nil
 }
 
 // DeactivateUserStatuses deactivates all active statuses for a user
@@ -101,35 +162,51 @@ func (r *statusRepository) GetVisibleStatuses(ctx context.Context, userID uuid.U
 	_ = r.ExpireOldStatuses(ctx)
 
 	query := `
-		SELECT 
-			s.id, s.user_id, s.availability_type, s.note, s.visibility_tier, 
-			s.expires_at, s.created_at, s.updated_at, s.is_active,
-			p.user_id, p.username, p.display_name, p.avatar_url, p.bio,
-			p.created_at, p.updated_at
-		FROM statuses s
-		INNER JOIN profiles p ON s.user_id = p.user_id
-		INNER JOIN connections c ON (
-			(c.user_id = $1 AND c.friend_id = s.user_id) OR 
-			(c.friend_id = $1 AND c.user_id = s.user_id)
-		)
-		WHERE s.is_active = TRUE
-			AND c.status = 'ACCEPTED'
-			AND (
-				-- ALL_CONNECTIONS: visible to all accepted connections
-				s.visibility_tier = 'ALL_CONNECTIONS'
-				-- CIRCLE_ONLY: visible only if viewer is in author's CIRCLE
-				-- Use directional tier: check the tier author assigned to viewer
-				OR (s.visibility_tier = 'CIRCLE_ONLY' AND (
-					(c.user_id = s.user_id AND c.user_tier = 'CIRCLE') OR
-					(c.friend_id = s.user_id AND c.friend_tier = 'CIRCLE')
-				))
-				-- CUSTOM_LIST: check custom visibility list
-				OR (s.visibility_tier = 'CUSTOM_LIST' AND EXISTS (
-					SELECT 1 FROM status_visibility_lists svl 
-					WHERE svl.status_id = s.id AND svl.visible_to_user_id = $1
-				))
+		WITH visible AS (
+			SELECT 
+				s.id, s.user_id, s.availability_type, s.note, s.visibility_tier,
+				s.expires_at, s.created_at, s.updated_at, s.is_active,
+				p.user_id AS profile_user_id, p.username, p.display_name, p.avatar_url, p.bio,
+				p.created_at AS profile_created_at, p.updated_at AS profile_updated_at,
+				ROW_NUMBER() OVER (
+					PARTITION BY s.user_id
+					ORDER BY
+						CASE s.visibility_tier
+							WHEN 'CIRCLE_ONLY' THEN 3
+							WHEN 'CUSTOM_LIST' THEN 2
+							WHEN 'ALL_CONNECTIONS' THEN 1
+							ELSE 0
+						END DESC,
+						s.created_at DESC
+				) AS priority_rank
+			FROM statuses s
+			INNER JOIN profiles p ON s.user_id = p.user_id
+			INNER JOIN connections c ON (
+				(c.user_id = $1 AND c.friend_id = s.user_id) OR
+				(c.friend_id = $1 AND c.user_id = s.user_id)
 			)
-		ORDER BY s.created_at DESC
+			WHERE s.is_active = TRUE
+				AND c.status = 'ACCEPTED'
+				AND (
+					s.visibility_tier = 'ALL_CONNECTIONS'
+					OR (s.visibility_tier = 'CIRCLE_ONLY' AND (
+						(c.user_id = s.user_id AND c.user_tier = 'CIRCLE') OR
+						(c.friend_id = s.user_id AND c.friend_tier = 'CIRCLE')
+					))
+					OR (s.visibility_tier = 'CUSTOM_LIST' AND EXISTS (
+						SELECT 1 FROM status_visibility_lists svl
+						WHERE svl.status_id = s.id AND svl.visible_to_user_id = $1
+					))
+				)
+		)
+		SELECT
+			id, user_id, availability_type, note, visibility_tier,
+			expires_at, created_at, updated_at, is_active,
+			profile_user_id, username, display_name, avatar_url, bio,
+			profile_created_at, profile_updated_at
+		FROM visible
+		WHERE priority_rank = 1
+		ORDER BY created_at DESC
 	`
 
 	rows, err := r.db.Query(ctx, query, userID)

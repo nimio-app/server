@@ -96,6 +96,34 @@ func (h *StatusHandler) GetMyStatus(w http.ResponseWriter, r *http.Request) {
 	SuccessResponse(w, http.StatusOK, status)
 }
 
+// GetMyStatuses handles GET /v1/me/statuses
+func (h *StatusHandler) GetMyStatuses(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from context
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		ErrorResponse(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	statuses, err := h.statusService.GetUserStatuses(r.Context(), userID)
+	if err != nil {
+		if err == domain.ErrNoActiveStatus {
+			SuccessResponse(w, http.StatusOK, map[string]interface{}{
+				"statuses": []interface{}{},
+				"count":    0,
+			})
+		} else {
+			ErrorResponse(w, http.StatusInternalServerError, "failed to get statuses")
+		}
+		return
+	}
+
+	SuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"statuses": statuses,
+		"count":    len(statuses),
+	})
+}
+
 // ClearStatus handles DELETE /v1/me/status
 func (h *StatusHandler) ClearStatus(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context

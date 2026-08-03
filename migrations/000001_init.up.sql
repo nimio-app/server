@@ -72,8 +72,10 @@ CREATE TABLE statuses (
     CONSTRAINT note_length CHECK (LENGTH(note) <= 500)
 );
 
--- Only one active status per user at a time
-CREATE UNIQUE INDEX idx_statuses_user_active ON statuses(user_id) WHERE is_active = TRUE;
+-- One active status per user per visibility tier (enables ALL + CIRCLE in parallel)
+CREATE UNIQUE INDEX idx_statuses_user_visibility_active
+    ON statuses(user_id, visibility_tier)
+    WHERE is_active = TRUE;
 CREATE INDEX idx_statuses_user_id ON statuses(user_id);
 CREATE INDEX idx_statuses_expires_at ON statuses(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX idx_statuses_created_at ON statuses(created_at);
