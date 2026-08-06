@@ -89,6 +89,7 @@ func (s *authService) Register(ctx context.Context, email, password, username, d
 		ID:                         uuid.New(),
 		Email:                      email,
 		PasswordHash:               passwordHash,
+		AuthProvider:               "email",
 		EmailVerified:              false,
 		VerificationToken:          &verificationToken,
 		VerificationTokenExpiresAt: &expiresAt,
